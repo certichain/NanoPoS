@@ -1,5 +1,5 @@
 import org.scalatest._
-import org.byzantine.pos._
+import org.byzantine.pos.{Address, Block, Blockchain, Coinbase, Hash, Transaction, _}
 
 class BlockchainSpec extends FlatSpec with Matchers {
   trait NewBlockTree {
@@ -51,6 +51,46 @@ class BlockchainSpec extends FlatSpec with Matchers {
     bt.extend(f2_block1)
 
     bt.top should be (f1_block2)
+  }
+
+  def shouldNotConstruct(f: () => Any): Unit = {
+    try {
+      val result = f()
+      println("If this prints, construction has worked (bad!)")
+      assert(false)
+    } catch {
+      case constructorFail: IllegalArgumentException => assert(true)
+    }
+  }
+
+  "A blockchain" should "always have length >= 1 (otherwise can't be constructed)" in {
+    shouldNotConstruct(() => new Blockchain(List()))
+  }
+
+  it should "always start with the genesis block (otherwise can't be constructed)" in {
+    val nonGenesisBlocks = List(
+      new Block(new Hash(GenesisBlock), List()),
+      new Block(new Hash("Genesis"), List()),
+      new Block(new Hash("junk"), List(new Coinbase(new Address(3))))
+    )
+
+    for (block <- nonGenesisBlocks)
+      shouldNotConstruct(() => new Blockchain(List(block)))
+  }
+
+  "A block" should "have zero or one coinbase transactions (otherwise can't be constructed)" in {
+    shouldNotConstruct(() => new Block(new Hash(("0")), List(new Coinbase(new Address(0)), new Coinbase(new Address(0)))))
+  }
+
+  it should "have coinbases with the correct output amount (otherwise can't be constructed)" in {
+    shouldNotConstruct(() => new Block(new Hash("0"), List(new Transaction(Const.CoinbaseSourceAddress, new Address(1), Const.CoinbaseAmount + 5))))
+    shouldNotConstruct(() => new Block(new Hash("0"), List(new Transaction(Const.CoinbaseSourceAddress, new Address(1), 2 * Const.CoinbaseAmount))))
+  }
+
+  "A transaction" should "have positive amount (otherwise can't be constructed)" in {
+    shouldNotConstruct(() => new Transaction(new Address(1), new Address(2), -5))
+    shouldNotConstruct(() => new Transaction(new Address(1), new Address(2), -1233))
+
   }
 
 }

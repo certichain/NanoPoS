@@ -1,7 +1,6 @@
 package org.byzantine.pos
 
 import com.roundeights.hasher.Implicits._
-import akka.actor. {Actor, ActorSystem}
 import java.time.Instant
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
@@ -32,6 +31,8 @@ class Address(val addr: Int) {
 }
 
 class Transaction(val from: Address, val to: Address, val amount: Int, val timestamp: Long) {
+  require(amount >= 0, "Cannot send negative amounts.")
+
   def this(from: Address, to: Address, amount: Int) = this(from, to, amount, Instant.now.getEpochSecond)
   override def toString: String = s"Tx($from, $to, $amount, $timestamp)"
 }
@@ -40,12 +41,21 @@ class Coinbase(to: Address) extends Transaction(Const.CoinbaseSourceAddress, to,
 }
 
 class Block(val prevBlockHash: Hash, val tx: List[Transaction], val timestamp: Long) {
+  require(haveAtMostOneCoinbase, "Blocks must have no more than one coinbase transaction.")
+  require(coinbaseHasCorrectAmount, "Blocks cannot contain malformed coinbase transactions.")
+
   def this(prevBlockHash: Hash, tx: List[Transaction]) = this(prevBlockHash, tx, Instant.now.getEpochSecond)
   override def toString: String = s"Block($prevBlockHash, $timestamp, [" + tx.mkString(", ") + s"])"
+
+  private def haveAtMostOneCoinbase = tx.filter(t => t.from == Const.CoinbaseSourceAddress).length <= 1
+  private def coinbaseHasCorrectAmount = !tx.exists(t => t.from == Const.CoinbaseSourceAddress && t.amount != Const.CoinbaseAmount)
 }
 object GenesisBlock extends Block(Const.GenesisPrevHash, List(Const.GenesisCoinbase), Const.GenesisTimestamp)
 
 class Blockchain(val blocks: List[Block]) {
+  require(blocks.length > 0, "Blockchains must have length > 0.")
+  require(blocks(0) == GenesisBlock, "Blockchains must start at the genesis block.")
+
   override def toString: String = "Blockchain[" + blocks.mkString(", ") + "]"
 
   def chainForkCompare(that: Blockchain): Int = {
@@ -124,15 +134,5 @@ class BlockTree {
     assert(currentBlock == GenesisBlock, "Got a chain that doesn't start with the GenesisBlock!")
     
     return new Blockchain(blocks.toList)
-  }
-}
-
-object Akka extends App {
-  val system: ActorSystem = ActorSystem("pos")
-
-  try {
-
-  } finally {
-    system.terminate()
   }
 }
