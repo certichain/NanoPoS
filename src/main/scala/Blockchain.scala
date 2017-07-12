@@ -24,8 +24,10 @@ class Hash(of: String) {
     case that: Hash => that.hashValue == this.hashValue
     case _ => false
   }
+
   override def hashCode = hashValue.hashCode
 }
+
 class Address(val addr: Int) {
   override def toString: String = addr.toString
 }
@@ -34,8 +36,10 @@ class Transaction(val from: Address, val to: Address, val amount: Int, val times
   require(amount >= 0, "Cannot send negative amounts.")
 
   def this(from: Address, to: Address, amount: Int) = this(from, to, amount, Instant.now.getEpochSecond)
+
   override def toString: String = s"Tx($from, $to, $amount, $timestamp)"
 }
+
 class Coinbase(to: Address) extends Transaction(Const.CoinbaseSourceAddress, to, Const.CoinbaseAmount) {
   override def toString: String = s"Coinbase($to, $amount)"
 }
@@ -45,11 +49,16 @@ class Block(val prevBlockHash: Hash, val tx: List[Transaction], val timestamp: L
   require(coinbaseHasCorrectAmount, "Blocks cannot contain malformed coinbase transactions.")
 
   def this(prevBlockHash: Hash, tx: List[Transaction]) = this(prevBlockHash, tx, Instant.now.getEpochSecond)
+
   override def toString: String = s"Block($prevBlockHash, $timestamp, [" + tx.mkString(", ") + s"])"
 
+  def hash = new Hash(this)
+
   private def haveAtMostOneCoinbase = tx.filter(t => t.from == Const.CoinbaseSourceAddress).length <= 1
+
   private def coinbaseHasCorrectAmount = !tx.exists(t => t.from == Const.CoinbaseSourceAddress && t.amount != Const.CoinbaseAmount)
 }
+
 object GenesisBlock extends Block(Const.GenesisPrevHash, List(Const.GenesisCoinbase), Const.GenesisTimestamp)
 
 class Blockchain(val blocks: List[Block]) {
@@ -71,7 +80,7 @@ class Blockchain(val blocks: List[Block]) {
 
 class BlockTree {
   private val blocks = new mutable.HashMap[Hash, Block]()
-  var topHash = this add GenesisBlock
+  private var topHash = this add GenesisBlock
 
   def top: Block = {
     this get topHash match {
@@ -85,24 +94,28 @@ class BlockTree {
   def extend(block: Block): Unit = {
     assert(havePrevOf(block), "Trying to extend a block we don't have!")
 
-    val currentChain = chain
-    val candidateChain = this getChainFrom block
+    // Only process nodes we don't have already
+    if (!have(block)) {
+      val currentChain = chain
+      val candidateChain = this getChainFrom block
 
-    // Update topHash according to the ChainForkRule
-    topHash = candidateChain.chainForkCompare(currentChain) match {
-      case 1 => this add block
-      case _ => topHash
+      // Update topHash according to the ChainForkRule
+      topHash = candidateChain.chainForkCompare(currentChain) match {
+        case 1 => this add block
+        case _ => topHash
+      }
     }
 
   }
 
   private def add(block: Block): Hash = {
     val hash = new Hash(block)
-    blocks put (hash, block)
+    blocks put(hash, block)
     return hash
   }
 
   private def get(hash: Hash): Option[Block] = blocks get hash
+
   private def getOrError(hash: Hash): Block = {
     (this get hash) match {
       case Some(x) => x
@@ -110,29 +123,36 @@ class BlockTree {
     }
   }
 
-  private def havePrevOf(block: Block): Boolean = {
-    (this get block.prevBlockHash) match {
+  private def have(hash: Hash): Boolean = {
+    (this get hash) match {
       case Some(x) => true
       case None => false
     }
   }
+
+  private def have(block: Block): Boolean = this have (new Hash(block))
+
+  private def havePrevOf(block: Block): Boolean = this have block.prevBlockHash
+
   private def prevOf(block: Block): Option[Block] = this get block.prevBlockHash
+
   private def prevOfOrError(block: Block): Block = this getOrError block.prevBlockHash
 
   private def getChainFrom(hash: Hash): Blockchain = {
     return getChainFrom(this getOrError hash)
   }
+
   private def getChainFrom(block: Block): Blockchain = {
     var blocks = mutable.ListBuffer[Block]()
     blocks.prepend(block)
 
     var currentBlock = block
-    while(this havePrevOf currentBlock) {
+    while (this havePrevOf currentBlock) {
       currentBlock = this prevOfOrError currentBlock
       blocks.prepend(currentBlock)
     }
     assert(currentBlock == GenesisBlock, "Got a chain that doesn't start with the GenesisBlock!")
-    
+
     return new Blockchain(blocks.toList)
   }
 }
