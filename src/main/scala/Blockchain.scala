@@ -30,12 +30,21 @@ class Hash(of: String) {
 
 class Address(val addr: Int) {
   override def toString: String = addr.toString
+
+  override def equals(o: Any) = o match {
+    case that: Address => that.addr == this.addr
+    case _ => false
+  }
+
+  override def hashCode = addr.hashCode
 }
 
 class Transaction(val from: Address, val to: Address, val amount: Int, val timestamp: Long) {
   require(amount >= 0, "Cannot send negative amounts.")
 
   def this(from: Address, to: Address, amount: Int) = this(from, to, amount, Instant.now.getEpochSecond)
+
+  def hash = new Hash(this)
 
   override def toString: String = s"Tx($from, $to, $amount, $timestamp)"
 }
@@ -66,6 +75,7 @@ class Blockchain(val blocks: List[Block]) {
   require(blocks(0) == GenesisBlock, "Blockchains must start at the genesis block.")
 
   override def toString: String = "Blockchain[" + blocks.mkString(", ") + "]"
+  def top: Block = blocks.last
 
   def chainForkCompare(that: Blockchain): Int = {
     val lengthCmp = (this.blocks.length - that.blocks.length) match {
@@ -76,6 +86,33 @@ class Blockchain(val blocks: List[Block]) {
 
     return lengthCmp
   }
+
+  object State {
+    private val balanceSheet = new mutable.HashMap[Address, Int]()
+    for (block <- blocks) { processBlock(block) }
+
+    def balance(of: Address): Int = balanceSheet.getOrElse(of, 0)
+    private def setBalance(of: Address, amount: Int): Unit = balanceSheet.put(of, amount)
+    private def +=(of: Address, diff: Int) = setBalance(of, balance(of) + diff)
+    private def -=(of: Address, diff: Int) = setBalance(of, balance(of) - diff)
+
+    private def processBlock(block: Block): Unit = {
+      // To simply the logic: can always transfer CoinbaseAmount from CoinbaseSource
+      setBalance(Const.CoinbaseSourceAddress, Const.CoinbaseAmount)
+
+      for (tx <- block.tx) {
+        processTransaction(tx)
+      }
+    }
+
+    private def processTransaction(tx: Transaction): Unit = {
+      require(balance(tx.from) >= tx.amount, s"Sender cannot send more than they have.")
+
+      -=(tx.from, tx.amount)
+      +=(tx.to, tx.amount)
+    }
+  }
+
 }
 
 class BlockTree {
@@ -109,9 +146,8 @@ class BlockTree {
   }
 
   private def add(block: Block): Hash = {
-    val hash = new Hash(block)
-    blocks put(hash, block)
-    return hash
+    blocks put(block.hash, block)
+    return block.hash
   }
 
   private def get(hash: Hash): Option[Block] = blocks get hash
@@ -130,7 +166,7 @@ class BlockTree {
     }
   }
 
-  private def have(block: Block): Boolean = this have (new Hash(block))
+  private def have(block: Block): Boolean = this have (block.hash)
 
   private def havePrevOf(block: Block): Boolean = this have block.prevBlockHash
 

@@ -15,8 +15,7 @@ case class TransactionMsg(tx: Transaction) extends Message
 
 // For now, we (unreasonably) assume every node talks directly with every other node, so there's no need
 // to relay/gossip information you receive
-class Node extends Actor {
-  val nodeID = self.path.name
+class Node(val nodeID: Int) extends Actor {
   val blockTree = new BlockTree()
   val txPool = new mutable.HashMap[Hash, Transaction]()
 
@@ -30,7 +29,7 @@ class Node extends Actor {
 
   def receive = {
     case BlockMsg(block) => blockTree.extend(block)
-    case TransactionMsg(tx) => txPool.put(new Hash(tx), tx)
+    case TransactionMsg(tx) => txPool.put(tx.hash, tx)
 
     case Node.AddPeerMsg(peer) => addPeer(peer)
     case Node.TransferMsg(from, to, amount) => transfer(from, to, amount)
@@ -50,19 +49,19 @@ class Node extends Actor {
   def transfer(from: Address, to: Address, amount: Int): Unit = {
     val tx = new Transaction(from, to, amount)
     val msg = new TransactionMsg(tx)
+
+    txPool.put(tx.hash, tx)
     sendToAllPeers(msg)
   }
 
   def mint(to: Address): Unit = {
-    if (txPool.nonEmpty) {
-      val txList = new Coinbase(to) :: txPool.values.toList
-      val mintedBlock = new Block(blockTree.top.hash, txList)
+    val txList = new Coinbase(to) :: txPool.values.toList
+    val mintedBlock = new Block(blockTree.top.hash, txList)
 
-      blockTree.extend(mintedBlock)
-      sendToAllPeers(new BlockMsg(mintedBlock))
+    blockTree.extend(mintedBlock)
+    sendToAllPeers(new BlockMsg(mintedBlock))
 
-      txPool.clear()
-    }
+    txPool.clear()
   }
 }
 

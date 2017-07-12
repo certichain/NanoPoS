@@ -78,6 +78,19 @@ class BlockchainSpec extends FlatSpec with Matchers {
       shouldNotConstruct(() => new Blockchain(List(block)))
   }
 
+  it should "correctly calculate the balance for various addresses" in {
+    val bc = new Blockchain(
+      List(
+        GenesisBlock,
+        new Block(GenesisBlock.hash, List(new Coinbase(new Address(1)), new Transaction(new Address(0), new Address(2), 10)))
+      )
+    )
+
+    bc.State.balance(new Address(1)) should be (Const.CoinbaseAmount)
+    bc.State.balance(new Address(2)) should be (10)
+    bc.State.balance(new Address(0)) should be (15)
+  }
+
   "A block" should "have zero or one coinbase transactions (otherwise can't be constructed)" in {
     shouldNotConstruct(() => new Block(new Hash(("0")), List(new Coinbase(new Address(0)), new Coinbase(new Address(0)))))
   }
@@ -90,7 +103,6 @@ class BlockchainSpec extends FlatSpec with Matchers {
   "A transaction" should "have positive amount (otherwise can't be constructed)" in {
     shouldNotConstruct(() => new Transaction(new Address(1), new Address(2), -5))
     shouldNotConstruct(() => new Transaction(new Address(1), new Address(2), -1233))
-
   }
 
 }
