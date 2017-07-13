@@ -1,8 +1,9 @@
 package org.byzantine.pos
 
+import java.time.Instant
+import akka.actor. {Actor, ActorRef}
+import akka.event. {Logging}
 import scala.collection.mutable
-import akka.actor.{Actor, ActorRef, ActorSystem, Props}
-import akka.event.{Logging}
 import scala.collection.mutable.ListBuffer
 import language.postfixOps
 import scala.concurrent.duration._
@@ -28,7 +29,7 @@ class Node(val nodeID: Int) extends Actor {
   def chain = blockTree.chain
 
   def receive = {
-    case BlockMsg(block) => blockTree.extend(block)
+    case BlockMsg(block) => extend(block)
     case TransactionMsg(tx) => txPool.put(tx.hash, tx)
 
     case Node.AddPeerMsg(peer) => addPeer(peer)
@@ -46,22 +47,44 @@ class Node(val nodeID: Int) extends Actor {
     }
   }
 
-  def transfer(from: Address, to: Address, amount: Int): Unit = {
-    val tx = new Transaction(from, to, amount)
-    val msg = new TransactionMsg(tx)
+  private def extend(block: Block): Boolean = {
+    val valid = blockTree.extend(block)
 
-    txPool.put(tx.hash, tx)
-    sendToAllPeers(msg)
+    // Remove included transactions from the txPool
+    if (valid) {
+      for (tx <- block.tx.filter(t => txPool.contains(t.hash))) {
+        txPool.remove(tx.hash)
+      }
+    }
+    return valid
+  }
+
+  def transfer(from: Address, to: Address, amount: Int): Unit = {
+    if (from == Address(nodeID) && chain.state.balance(from) >= amount) {
+      log.info(s"Sending $amount from $from to $to.")
+      val tx = new Transaction(from, to, amount)
+      val msg = new TransactionMsg(tx)
+
+      txPool.put(tx.hash, tx)
+      sendToAllPeers(msg)
+    }
   }
 
   def mint(to: Address): Unit = {
-    val txList = new Coinbase(to) :: txPool.values.toList
-    val mintedBlock = new Block(blockTree.top.hash, txList)
+    // TODO: make sure you only build valid blocks
+    val currentTimestamp = Instant.now.getEpochSecond
+    val pos = new ProofOfStake(currentTimestamp, chain.consensus.POS.stakeModifier, Address(nodeID))
 
-    blockTree.extend(mintedBlock)
-    sendToAllPeers(new BlockMsg(mintedBlock))
+    if (chain.consensus.POS.stake(Address(nodeID)) != 0 && chain.consensus.POS.validate(pos)) {
+      val txList = new Coinbase(to) :: txPool.values.toList
+      val mintedBlock = new Block(blockTree.top.hash, txList, currentTimestamp, pos)
 
-    txPool.clear()
+      if (extend(mintedBlock)) {
+        log.info("Minted  block " + mintedBlock.hash + " containing " + mintedBlock.tx.length + " transactions.\n" + mintedBlock)
+        sendToAllPeers(new BlockMsg(mintedBlock))
+        txPool.clear()
+      }
+    }
   }
 }
 

@@ -6,11 +6,16 @@ import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
 
 object Const {
-  val CoinbaseSourceAddress: Address = new Address(-1)
+  val CoinbaseSourceAddress: Address = Address(-1)
   val CoinbaseAmount: Int = 25
+
   val GenesisPrevHash: Hash = new Hash("Genesis")
-  val GenesisCoinbase: Coinbase = new Coinbase(new Address(0))
-  val GenesisTimestamp: Long = 1499774400
+  val GenesisCoinbase: Coinbase = new Coinbase(Address(0))
+  val GenesisTimestamp: Long = Instant.now.getEpochSecond
+  val GenesisProofOfStake = new ProofOfStake(GenesisTimestamp, GenesisPrevHash, CoinbaseSourceAddress)
+
+  val MaxAcceptedTimestampDiff: Long = 3600
+  val HashTarget: String = ("007") + GenesisPrevHash.toString.substring(3)
 }
 
 class Hash(of: String) {
@@ -28,7 +33,7 @@ class Hash(of: String) {
   override def hashCode = hashValue.hashCode
 }
 
-class Address(val addr: Int) {
+case class Address(val addr: Int) {
   override def toString: String = addr.toString
 
   override def equals(o: Any) = o match {
@@ -39,6 +44,7 @@ class Address(val addr: Int) {
   override def hashCode = addr.hashCode
 }
 
+// We are assuming that these can't be forged (e.g. they're cryptographically signed by the sender)
 class Transaction(val from: Address, val to: Address, val amount: Int, val timestamp: Long) {
   require(amount >= 0, "Cannot send negative amounts.")
 
@@ -53,11 +59,14 @@ class Coinbase(to: Address) extends Transaction(Const.CoinbaseSourceAddress, to,
   override def toString: String = s"Coinbase($to, $amount)"
 }
 
-class Block(val prevBlockHash: Hash, val tx: List[Transaction], val timestamp: Long) {
+// We are assuming that these can't be forged (e.g. they're cryptographically signed by the validator)
+case class ProofOfStake(val timestamp: Long, val stakeModifier: Hash, val validator: Address)
+
+class Block(val prevBlockHash: Hash, val tx: List[Transaction], val timestamp: Long, val pos: ProofOfStake) {
   require(haveAtMostOneCoinbase, "Blocks must have no more than one coinbase transaction.")
   require(coinbaseHasCorrectAmount, "Blocks cannot contain malformed coinbase transactions.")
 
-  def this(prevBlockHash: Hash, tx: List[Transaction]) = this(prevBlockHash, tx, Instant.now.getEpochSecond)
+  def this(prevBlockHash: Hash, tx: List[Transaction], pos: ProofOfStake) = this(prevBlockHash, tx, Instant.now.getEpochSecond, pos)
 
   override def toString: String = s"Block($prevBlockHash, $timestamp, [" + tx.mkString(", ") + s"])"
 
@@ -68,7 +77,7 @@ class Block(val prevBlockHash: Hash, val tx: List[Transaction], val timestamp: L
   private def coinbaseHasCorrectAmount = !tx.exists(t => t.from == Const.CoinbaseSourceAddress && t.amount != Const.CoinbaseAmount)
 }
 
-object GenesisBlock extends Block(Const.GenesisPrevHash, List(Const.GenesisCoinbase), Const.GenesisTimestamp)
+object GenesisBlock extends Block(Const.GenesisPrevHash, List(Const.GenesisCoinbase), Const.GenesisTimestamp, Const.GenesisProofOfStake)
 
 class Blockchain(val blocks: List[Block]) {
   require(blocks.length > 0, "Blockchains must have length > 0.")
@@ -77,17 +86,25 @@ class Blockchain(val blocks: List[Block]) {
   override def toString: String = "Blockchain[" + blocks.mkString(", ") + "]"
   def top: Block = blocks.last
 
-  def chainForkCompare(that: Blockchain): Int = {
-    val lengthCmp = (this.blocks.length - that.blocks.length) match {
-      case diff if diff < 0 => -1
-      case diff if diff == 0 => 0
-      case diff if diff > 0 => 1
+  def compare(that: Blockchain) = consensus.chainForkCompare(this, that)
+
+  object consensus {
+    def chainForkCompare(orig: Blockchain, that: Blockchain): Int = {
+      val lengthCmp = (orig.blocks.length - that.blocks.length) match {
+        case diff if diff < 0 => -1
+        case diff if diff == 0 => 0
+        case diff if diff > 0 => 1
+      }
+
+      return lengthCmp
     }
 
-    return lengthCmp
+    val POS = new POS(blocks)
   }
 
-  object State {
+  val state = new State(blocks)
+
+  class State(blocks: List[Block]) {
     private val balanceSheet = new mutable.HashMap[Address, Int]()
     for (block <- blocks) { processBlock(block) }
 
@@ -96,7 +113,7 @@ class Blockchain(val blocks: List[Block]) {
     private def +=(of: Address, diff: Int) = setBalance(of, balance(of) + diff)
     private def -=(of: Address, diff: Int) = setBalance(of, balance(of) - diff)
 
-    private def processBlock(block: Block): Unit = {
+    protected[Blockchain] def processBlock(block: Block): Unit = {
       // To simply the logic: can always transfer CoinbaseAmount from CoinbaseSource
       setBalance(Const.CoinbaseSourceAddress, Const.CoinbaseAmount)
 
@@ -113,36 +130,109 @@ class Blockchain(val blocks: List[Block]) {
     }
   }
 
+  class POS(blocks: List[Block]) {
+    private var chainState = new State(List(blocks(0)))
+    private var currentBlockHeight = 0
+    private def chainTop = blocks(currentBlockHeight)
+
+    // When constructed, verify POS conditions for all blocks
+    require(chainTop == GenesisBlock, "First block must be the genesis block.")
+    while (processNextBlock()) {}
+
+    def stake(stakeholder: Address): Int = chainState.balance(stakeholder)
+    def stakeModifier(): Hash = chainTop.hash
+    private def timestamp(): Long = chainTop.timestamp
+
+    private def validatorAcceptance(timestamp: Long, candidate: Address): Boolean =  {
+      val amount = stake(candidate)
+      val kernel: String = timestamp.toString + stakeModifier.toString + candidate.toString
+
+      // Create a positive BigInt from the kernel's hash
+      val kernelHash = new BigInt(new java.math.BigInteger(1, kernel.sha1.bytes))
+
+      // Interpret the HashTarget (which is a string) as a hex number
+      val targetHash = new BigInt(new java.math.BigInteger(Const.HashTarget, 16))
+
+//      def stringWithLeadingZeroes(d: BigInt): String = "%040x".format(d)
+//      println(stringWithLeadingZeroes(kernelHash) + " <= " + stringWithLeadingZeroes(targetHash * amount) + " (" + (kernelHash <= (targetHash * amount)) + ")")
+
+      return kernelHash <= (targetHash * amount)
+    }
+
+    def validate(pos: ProofOfStake): Boolean = {
+//      println(pos.stakeModifier + s" == $stakeModifier (" + (pos.stakeModifier == stakeModifier).toString + ")")
+//      println("math.abs(" + pos.timestamp + s" - $timestamp) <= " + Const.MaxAcceptedTimestampDiff + " (" + (math.abs(pos.timestamp - timestamp) <= Const.MaxAcceptedTimestampDiff).toString + ")")
+
+      return (pos.stakeModifier == stakeModifier &&
+        math.abs(pos.timestamp - timestamp) <= Const.MaxAcceptedTimestampDiff &&
+        validatorAcceptance(pos.timestamp, pos.validator)
+        )
+    }
+
+    private def processNextBlock(): Boolean = {
+      val nextBlockHeight = currentBlockHeight + 1
+
+      // If there's something left to process
+      if (nextBlockHeight < blocks.length) {
+        val nextBlock = blocks(nextBlockHeight)
+        require(validate(nextBlock.pos), "Blocks must satisfy the POS conditions.")
+
+        chainState.processBlock(blocks(nextBlockHeight))
+        currentBlockHeight = nextBlockHeight
+        return true
+      }
+      else {
+        return false
+      }
+    }
+  }
+
 }
 
 class BlockTree {
   private val blocks = new mutable.HashMap[Hash, Block]()
   private var topHash = this add GenesisBlock
 
-  def top: Block = {
+  def top(): Block = {
     this get topHash match {
       case Some(x) => x
       case None => throw new Exception("Our blockchain has no top!")
     }
   }
 
-  def chain: Blockchain = this getChainFrom topHash
+  def chain(): Blockchain = this getChainFrom topHash
 
-  def extend(block: Block): Unit = {
+  // Returned value represents whether the block is valid
+  def extend(block: Block): Boolean = {
+    // TODO: handle this gracefully, e.g. put in a queue
     assert(havePrevOf(block), "Trying to extend a block we don't have!")
 
     // Only process nodes we don't have already
     if (!have(block)) {
-      val currentChain = chain
-      val candidateChain = this getChainFrom block
+      val receivedChain: Option[Blockchain] = try {
+        Some(this getChainFrom block)
+      } catch {
+        case _: Throwable => None
+      }
 
-      // Update topHash according to the ChainForkRule
-      topHash = candidateChain.chainForkCompare(currentChain) match {
-        case 1 => this add block
-        case _ => topHash
+      if (receivedChain == None) {
+        return false
+      }
+      else {
+        val currentChain = chain
+        val candidateChain = receivedChain.get
+
+        // Update topHash according to the ChainForkRule
+        topHash = candidateChain.compare(currentChain) match {
+          case 1 => this add block
+          case _ => topHash
+        }
+
+        return true
       }
     }
 
+    return false
   }
 
   private def add(block: Block): Hash = {

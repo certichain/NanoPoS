@@ -71,7 +71,7 @@ class BlockchainSpec extends FlatSpec with Matchers {
     val nonGenesisBlocks = List(
       new Block(new Hash(GenesisBlock), List()),
       new Block(new Hash("Genesis"), List()),
-      new Block(new Hash("junk"), List(new Coinbase(new Address(3))))
+      new Block(new Hash("junk"), List(new Coinbase(Address(3))))
     )
 
     for (block <- nonGenesisBlocks)
@@ -82,27 +82,27 @@ class BlockchainSpec extends FlatSpec with Matchers {
     val bc = new Blockchain(
       List(
         GenesisBlock,
-        new Block(GenesisBlock.hash, List(new Coinbase(new Address(1)), new Transaction(new Address(0), new Address(2), 10)))
+        new Block(GenesisBlock.hash, List(new Coinbase(Address(1)), new Transaction(Address(0), Address(2), 10)))
       )
     )
 
-    bc.State.balance(new Address(1)) should be (Const.CoinbaseAmount)
-    bc.State.balance(new Address(2)) should be (10)
-    bc.State.balance(new Address(0)) should be (15)
+    bc.state.balance(Address(1)) should be (Const.CoinbaseAmount)
+    bc.state.balance(Address(2)) should be (10)
+    bc.state.balance(Address(0)) should be (15)
   }
 
   "A block" should "have zero or one coinbase transactions (otherwise can't be constructed)" in {
-    shouldNotConstruct(() => new Block(new Hash(("0")), List(new Coinbase(new Address(0)), new Coinbase(new Address(0)))))
+    shouldNotConstruct(() => new Block(new Hash(("0")), List(new Coinbase(Address(0)), new Coinbase(Address(0)))))
   }
 
   it should "have coinbases with the correct output amount (otherwise can't be constructed)" in {
-    shouldNotConstruct(() => new Block(new Hash("0"), List(new Transaction(Const.CoinbaseSourceAddress, new Address(1), Const.CoinbaseAmount + 5))))
-    shouldNotConstruct(() => new Block(new Hash("0"), List(new Transaction(Const.CoinbaseSourceAddress, new Address(1), 2 * Const.CoinbaseAmount))))
+    shouldNotConstruct(() => new Block(new Hash("0"), List(new Transaction(Const.CoinbaseSourceAddress, Address(1), Const.CoinbaseAmount + 5))))
+    shouldNotConstruct(() => new Block(new Hash("0"), List(new Transaction(Const.CoinbaseSourceAddress, Address(1), 2 * Const.CoinbaseAmount))))
   }
 
   "A transaction" should "have positive amount (otherwise can't be constructed)" in {
-    shouldNotConstruct(() => new Transaction(new Address(1), new Address(2), -5))
-    shouldNotConstruct(() => new Transaction(new Address(1), new Address(2), -1233))
+    shouldNotConstruct(() => new Transaction(Address(1), Address(2), -5))
+    shouldNotConstruct(() => new Transaction(Address(1), Address(2), -1233))
   }
 
 }
