@@ -74,7 +74,7 @@ class Node(val nodeID: Int) extends Actor {
     val currentTimestamp = Instant.now.getEpochSecond
     val pos = new ProofOfStake(currentTimestamp, chain.consensus.POS.stakeModifier, Address(nodeID))
 
-    if (chain.consensus.POS.stake(Address(nodeID)) != 0 && chain.consensus.POS.validate(pos)) {
+    if (txPool.nonEmpty && chain.consensus.POS.stake(Address(nodeID)) != 0 && chain.consensus.POS.validate(pos)) {
       val txList = new Coinbase(to) :: txPool.values.toList
       val mintedBlock = new Block(blockTree.top.hash, txList, currentTimestamp, pos)
 
