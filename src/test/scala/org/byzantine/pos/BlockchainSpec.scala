@@ -1,5 +1,6 @@
+package org.byzantine.pos
+
 import org.scalatest._
-import org.byzantine.pos.{Address, Block, Blockchain, Coinbase, Hash, Transaction, _}
 
 class BlockchainSpec extends FlatSpec with Matchers {
   trait NewBlockTree {
@@ -11,7 +12,7 @@ class BlockchainSpec extends FlatSpec with Matchers {
   }
 
   it should "start with the genesis block" in new NewBlockTree {
-    bt.chain.blocks(0) should be (GenesisBlock)
+    bt.chain.blocks.head should be (GenesisBlock)
   }
 
   it should "allow extensions building on the genesis block" in new NewBlockTree {

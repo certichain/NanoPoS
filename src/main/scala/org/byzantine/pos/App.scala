@@ -1,9 +1,10 @@
 package org.byzantine.pos
 
+import akka.actor.{ActorRef, ActorSystem, Props}
+
 import scala.collection.mutable.ListBuffer
-import akka.actor. { Actor, ActorSystem, ActorRef, Props }
-import language.postfixOps
 import scala.concurrent.duration._
+import scala.language.postfixOps
 import scala.util.Random
 
 object Akka extends App {
@@ -12,7 +13,7 @@ object Akka extends App {
 
   // Create nodes
   val nodesBuffer = new ListBuffer[ActorRef]()
-  for (i <- 0 to (N-1)) {
+  for (i <- 0 until N) {
     nodesBuffer.append(system.actorOf(Props(classOf[Node], i), i.toString))
   }
 
@@ -21,7 +22,7 @@ object Akka extends App {
   for (initNode <- nodes) {
     for (peerNode <- nodes) {
       if (initNode != peerNode)
-        initNode ! new Node.AddPeerMsg(peerNode)
+        initNode ! Node.AddPeerMsg(peerNode)
     }
   }
 
@@ -30,8 +31,8 @@ object Akka extends App {
 
   // All nodes try to mint from time to time
   system.scheduler.schedule(0 seconds, 1 seconds, runnable {
-    for (i <- 0 to (N-1)) {
-      nodes(i) ! new Node.MintMsg(Address(i))
+    for (i <- 0 until N) {
+      nodes(i) ! Node.MintMsg(Address(i))
     }
   })
 
@@ -47,10 +48,10 @@ object Akka extends App {
       val possibleSender = randomNodeID()
       val receiver = randomNodeID()
 
-      nodes(possibleSender) ! new Node.TransferMsg(new Address(possibleSender), new Address(receiver), 5)
+      nodes(possibleSender) ! Node.TransferMsg(Address(possibleSender), Address(receiver), 5)
     }
 
-    ok = (ln != "")
+    ok = ln != ""
   }
 
   system.terminate()

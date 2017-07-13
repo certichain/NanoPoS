@@ -1,9 +1,10 @@
 package org.byzantine.pos
 
-import com.roundeights.hasher.Implicits._
 import java.time.Instant
+
+import com.roundeights.hasher.Implicits._
+
 import scala.collection.mutable
-import scala.collection.mutable.ListBuffer
 
 object Const {
   val CoinbaseSourceAddress: Address = Address(-1)
@@ -12,10 +13,10 @@ object Const {
   val GenesisPrevHash: Hash = new Hash("Genesis")
   val GenesisCoinbase: Coinbase = new Coinbase(Address(0))
   val GenesisTimestamp: Long = Instant.now.getEpochSecond
-  val GenesisProofOfStake = new ProofOfStake(GenesisTimestamp, GenesisPrevHash, CoinbaseSourceAddress)
+  val GenesisProofOfStake = ProofOfStake(GenesisTimestamp, GenesisPrevHash, CoinbaseSourceAddress)
 
   val MaxAcceptedTimestampDiff: Long = 3600
-  val HashTarget: String = ("007") + GenesisPrevHash.toString.substring(3)
+  val HashTarget: String = "007" + GenesisPrevHash.toString.substring(3)
 }
 
 class Hash(of: String) {
@@ -63,6 +64,7 @@ class Coinbase(to: Address) extends Transaction(Const.CoinbaseSourceAddress, to,
 case class ProofOfStake(val timestamp: Long, val stakeModifier: Hash, val validator: Address)
 
 class Block(val prevBlockHash: Hash, val tx: List[Transaction], val timestamp: Long, val pos: ProofOfStake) {
+
   require(haveAtMostOneCoinbase, "Blocks must have no more than one coinbase transaction.")
   require(coinbaseHasCorrectAmount, "Blocks cannot contain malformed coinbase transactions.")
 
@@ -72,7 +74,7 @@ class Block(val prevBlockHash: Hash, val tx: List[Transaction], val timestamp: L
 
   def hash = new Hash(this)
 
-  private def haveAtMostOneCoinbase = tx.filter(t => t.from == Const.CoinbaseSourceAddress).length <= 1
+  private def haveAtMostOneCoinbase = tx.count(t => t.from == Const.CoinbaseSourceAddress) <= 1
 
   private def coinbaseHasCorrectAmount = !tx.exists(t => t.from == Const.CoinbaseSourceAddress && t.amount != Const.CoinbaseAmount)
 }
@@ -81,7 +83,7 @@ object GenesisBlock extends Block(Const.GenesisPrevHash, List(Const.GenesisCoinb
 
 class Blockchain(val blocks: List[Block]) {
   require(blocks.length > 0, "Blockchains must have length > 0.")
-  require(blocks(0) == GenesisBlock, "Blockchains must start at the genesis block.")
+  require(blocks.head == GenesisBlock, "Blockchains must start at the genesis block.")
 
   override def toString: String = "Blockchain[" + blocks.mkString(", ") + "]"
   def top: Block = blocks.last
@@ -90,13 +92,13 @@ class Blockchain(val blocks: List[Block]) {
 
   object consensus {
     def chainForkCompare(orig: Blockchain, that: Blockchain): Int = {
-      val lengthCmp = (orig.blocks.length - that.blocks.length) match {
+      val lengthCmp = orig.blocks.length - that.blocks.length match {
         case diff if diff < 0 => -1
         case diff if diff == 0 => 0
         case diff if diff > 0 => 1
       }
 
-      return lengthCmp
+      lengthCmp
     }
 
     val POS = new POS(blocks)
@@ -106,7 +108,9 @@ class Blockchain(val blocks: List[Block]) {
 
   class State(blocks: List[Block]) {
     private val balanceSheet = new mutable.HashMap[Address, Int]()
-    for (block <- blocks) { processBlock(block) }
+    for (block <- blocks) {
+      processBlock(block)
+    }
 
     def balance(of: Address): Int = balanceSheet.getOrElse(of, 0)
     private def setBalance(of: Address, amount: Int): Unit = balanceSheet.put(of, amount)
@@ -131,7 +135,7 @@ class Blockchain(val blocks: List[Block]) {
   }
 
   class POS(blocks: List[Block]) {
-    private var chainState = new State(List(blocks(0)))
+    private var chainState = new State(List(blocks.head))
     private var currentBlockHeight = 0
     private def chainTop = blocks(currentBlockHeight)
 
@@ -140,33 +144,33 @@ class Blockchain(val blocks: List[Block]) {
     while (processNextBlock()) {}
 
     def stake(stakeholder: Address): Int = chainState.balance(stakeholder)
-    def stakeModifier(): Hash = chainTop.hash
+    def stakeModifier: Hash = chainTop.hash
     private def timestamp(): Long = chainTop.timestamp
 
-    private def validatorAcceptance(timestamp: Long, candidate: Address): Boolean =  {
+    private def validatorAcceptance(timestamp: Long, candidate: Address): Boolean = {
       val amount = stake(candidate)
       val kernel: String = timestamp.toString + stakeModifier.toString + candidate.toString
 
       // Create a positive BigInt from the kernel's hash
+//      val kernelHash = new BigInt(new java.math.BigInteger(1, kernel.sha1.bytes))
       val kernelHash = new BigInt(new java.math.BigInteger(1, kernel.sha1.bytes))
 
       // Interpret the HashTarget (which is a string) as a hex number
       val targetHash = new BigInt(new java.math.BigInteger(Const.HashTarget, 16))
 
-//      def stringWithLeadingZeroes(d: BigInt): String = "%040x".format(d)
-//      println(stringWithLeadingZeroes(kernelHash) + " <= " + stringWithLeadingZeroes(targetHash * amount) + " (" + (kernelHash <= (targetHash * amount)) + ")")
+            def stringWithLeadingZeroes(d: BigInt): String = "%040x".format(d)
+            println(stringWithLeadingZeroes(kernelHash) + " <= " + stringWithLeadingZeroes(targetHash * amount) + " (" + (kernelHash <= (targetHash * amount)) + ")")
 
-      return kernelHash <= (targetHash * amount)
+      kernelHash <= (targetHash * amount)
     }
 
     def validate(pos: ProofOfStake): Boolean = {
-//      println(pos.stakeModifier + s" == $stakeModifier (" + (pos.stakeModifier == stakeModifier).toString + ")")
-//      println("math.abs(" + pos.timestamp + s" - $timestamp) <= " + Const.MaxAcceptedTimestampDiff + " (" + (math.abs(pos.timestamp - timestamp) <= Const.MaxAcceptedTimestampDiff).toString + ")")
+      //      println(pos.stakeModifier + s" == $stakeModifier (" + (pos.stakeModifier == stakeModifier).toString + ")")
+      //      println("math.abs(" + pos.timestamp + s" - $timestamp) <= " + Const.MaxAcceptedTimestampDiff + " (" + (math.abs(pos.timestamp - timestamp) <= Const.MaxAcceptedTimestampDiff).toString + ")")
 
-      return (pos.stakeModifier == stakeModifier &&
-        math.abs(pos.timestamp - timestamp) <= Const.MaxAcceptedTimestampDiff &&
-        validatorAcceptance(pos.timestamp, pos.validator)
-        )
+      pos.stakeModifier == stakeModifier &&
+          math.abs(pos.timestamp - timestamp) <= Const.MaxAcceptedTimestampDiff &&
+          validatorAcceptance(pos.timestamp, pos.validator)
     }
 
     private def processNextBlock(): Boolean = {
@@ -203,7 +207,7 @@ class BlockTree {
     }
   }
 
-  def chain(): Blockchain = this getChainFrom topHash
+  def chain: Blockchain = this getChainFrom topHash
 
   def extensionPossibleWith(block: Block): Boolean = {
     val constructedChain: Option[Blockchain] = try {

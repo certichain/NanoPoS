@@ -1,12 +1,13 @@
 package org.byzantine.pos
 
 import java.time.Instant
-import akka.actor. {Actor, ActorRef}
-import akka.event. {Logging}
+
+import akka.actor.{Actor, ActorRef}
+import akka.event.Logging
+
 import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
-import language.postfixOps
-import scala.concurrent.duration._
+import scala.language.postfixOps
 
 
 // Sent  by the network
@@ -26,7 +27,7 @@ class Node(val nodeID: Int) extends Actor {
 
   val log = Logging(context.system, this)
 
-  def chain = blockTree.chain
+  def chain() = blockTree.chain
 
   def receive = {
     case BlockMsg(block) => extend(block)
