@@ -193,6 +193,9 @@ class BlockTree {
   private val blocks = new mutable.HashMap[Hash, Block]()
   private var topHash = this add GenesisBlock
 
+  private val missingParents = new mutable.HashSet[Hash]()
+  private val orphanBlocks = new mutable.HashSet[Block]()
+
   def top(): Block = {
     this get topHash match {
       case Some(x) => x
@@ -202,37 +205,42 @@ class BlockTree {
 
   def chain(): Blockchain = this getChainFrom topHash
 
-  // Returned value represents whether the block is valid
-  def extend(block: Block): Boolean = {
-    // TODO: handle this gracefully, e.g. put in a queue
-    assert(havePrevOf(block), "Trying to extend a block we don't have!")
+  def extensionPossibleWith(block: Block): Boolean = {
+    val constructedChain: Option[Blockchain] = try {
+      Some(this getChainFrom block)
+    } catch {
+      case _: Throwable => None
+    }
 
-    // Only process nodes we don't have already
-    if (!have(block)) {
-      val receivedChain: Option[Blockchain] = try {
-        Some(this getChainFrom block)
-      } catch {
-        case _: Throwable => None
-      }
+    return (constructedChain != None)
+  }
 
-      if (receivedChain == None) {
-        return false
-      }
-      else {
+  def extend(block: Block): Unit = {
+    // Keep track of blocks that build on blocks we don't yet have
+    if (!havePrevOf(block)) {
+      missingParents += block.prevBlockHash
+      orphanBlocks += block
+    }
+    else {
+      if (!have(block) && extensionPossibleWith(block)) {
         val currentChain = chain
-        val candidateChain = receivedChain.get
+        val candidateChain = this getChainFrom block
 
-        // Update topHash according to the ChainForkRule
         topHash = candidateChain.compare(currentChain) match {
           case 1 => this add block
           case _ => topHash
         }
 
-        return true
+        // This block is the parent of at least one orphan block, so let's extend with the orphan(s) as well
+        if (missingParents.contains(block.hash)) {
+          val children = orphanBlocks.filter(b => b.prevBlockHash == block.hash)
+          for (c <- children) {
+            extend(c)
+          }
+          missingParents -= block.hash
+        }
       }
     }
-
-    return false
   }
 
   private def add(block: Block): Hash = {

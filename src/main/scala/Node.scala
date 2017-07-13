@@ -47,16 +47,15 @@ class Node(val nodeID: Int) extends Actor {
     }
   }
 
-  private def extend(block: Block): Boolean = {
-    val valid = blockTree.extend(block)
+  private def extend(block: Block): Unit = {
+    if (blockTree.extensionPossibleWith(block)) {
+      blockTree.extend(block)
 
-    // Remove included transactions from the txPool
-    if (valid) {
+      // Remove from txPool transactions that were included in this block
       for (tx <- block.tx.filter(t => txPool.contains(t.hash))) {
         txPool.remove(tx.hash)
       }
     }
-    return valid
   }
 
   def transfer(from: Address, to: Address, amount: Int): Unit = {
@@ -79,8 +78,9 @@ class Node(val nodeID: Int) extends Actor {
       val txList = new Coinbase(to) :: txPool.values.toList
       val mintedBlock = new Block(blockTree.top.hash, txList, currentTimestamp, pos)
 
-      if (extend(mintedBlock)) {
-        log.info("Minted  block " + mintedBlock.hash + " containing " + mintedBlock.tx.length + " transactions.\n" + mintedBlock)
+      if (blockTree.extensionPossibleWith(mintedBlock)) {
+        extend(mintedBlock)
+        log.info("Minted block " + mintedBlock.hash + " containing " + mintedBlock.tx.length + " transactions.\n" + mintedBlock)
         sendToAllPeers(new BlockMsg(mintedBlock))
         txPool.clear()
       }
