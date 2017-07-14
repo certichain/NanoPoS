@@ -3,6 +3,7 @@ package org.byzantine.pos
 import org.scalatest._
 
 class BlockchainSpec extends FlatSpec with Matchers {
+  val mockPOS = Const.GenesisProofOfStake
   trait NewBlockTree {
     val bt = new BlockTree()
   }
@@ -13,45 +14,6 @@ class BlockchainSpec extends FlatSpec with Matchers {
 
   it should "start with the genesis block" in new NewBlockTree {
     bt.chain.blocks.head should be (GenesisBlock)
-  }
-
-  it should "allow extensions building on the genesis block" in new NewBlockTree {
-    val newBlock = new Block(new Hash(GenesisBlock), List())
-    bt.extend(newBlock)
-    bt.top should be (newBlock)
-  }
-
-  it should "NOT allow extensions on other hashes" in new NewBlockTree {
-    val blocksBuildingOnJunk = List(
-      new Block(new Hash("0"), List()),
-      new Block(new Hash(new Hash(GenesisBlock)), List()),
-      new Block(new Hash("Genesis"), List())
-    )
-
-    for (newBlock <- blocksBuildingOnJunk) {
-      try {
-        bt.extend(newBlock)
-      } catch {
-        case _: Throwable => "We expect this to fail."
-      }
-
-      bt.top should be(GenesisBlock)
-    }
-  }
-
-  "The ChainForkRule" should "choose the longest chain in case of a fork" in new NewBlockTree {
-    // We manually supply the timestamps so the test works regardless of timing
-    val f1_block1 = new Block(new Hash(GenesisBlock), List(), 1)
-    val f1_block2 = new Block(new Hash(f1_block1), List(), 2)
-
-    val f2_block1 = new Block(new Hash(GenesisBlock), List(), 3)
-
-    bt.extend(f1_block1)
-    bt.extend(f1_block2)
-
-    bt.extend(f2_block1)
-
-    bt.top should be (f1_block2)
   }
 
   def shouldNotConstruct(f: () => Any): Unit = {
@@ -70,35 +32,22 @@ class BlockchainSpec extends FlatSpec with Matchers {
 
   it should "always start with the genesis block (otherwise can't be constructed)" in {
     val nonGenesisBlocks = List(
-      new Block(new Hash(GenesisBlock), List()),
-      new Block(new Hash("Genesis"), List()),
-      new Block(new Hash("junk"), List(new Coinbase(Address(3))))
+      new Block(new Hash(GenesisBlock), List(), mockPOS),
+      new Block(new Hash("Genesis"), List(), mockPOS),
+      new Block(new Hash("junk"), List(new Coinbase(Address(3))), mockPOS)
     )
 
     for (block <- nonGenesisBlocks)
       shouldNotConstruct(() => new Blockchain(List(block)))
   }
 
-  it should "correctly calculate the balance for various addresses" in {
-    val bc = new Blockchain(
-      List(
-        GenesisBlock,
-        new Block(GenesisBlock.hash, List(new Coinbase(Address(1)), new Transaction(Address(0), Address(2), 10)))
-      )
-    )
-
-    bc.state.balance(Address(1)) should be (Const.CoinbaseAmount)
-    bc.state.balance(Address(2)) should be (10)
-    bc.state.balance(Address(0)) should be (15)
-  }
-
   "A block" should "have zero or one coinbase transactions (otherwise can't be constructed)" in {
-    shouldNotConstruct(() => new Block(new Hash(("0")), List(new Coinbase(Address(0)), new Coinbase(Address(0)))))
+    shouldNotConstruct(() => new Block(new Hash(("0")), List(new Coinbase(Address(0)), new Coinbase(Address(0))), mockPOS))
   }
 
   it should "have coinbases with the correct output amount (otherwise can't be constructed)" in {
-    shouldNotConstruct(() => new Block(new Hash("0"), List(new Transaction(Const.CoinbaseSourceAddress, Address(1), Const.CoinbaseAmount + 5))))
-    shouldNotConstruct(() => new Block(new Hash("0"), List(new Transaction(Const.CoinbaseSourceAddress, Address(1), 2 * Const.CoinbaseAmount))))
+    shouldNotConstruct(() => new Block(new Hash("0"), List(new Transaction(Const.CoinbaseSourceAddress, Address(1), Const.CoinbaseAmount + 5)), mockPOS))
+    shouldNotConstruct(() => new Block(new Hash("0"), List(new Transaction(Const.CoinbaseSourceAddress, Address(1), 2 * Const.CoinbaseAmount)), mockPOS))
   }
 
   "A transaction" should "have positive amount (otherwise can't be constructed)" in {
