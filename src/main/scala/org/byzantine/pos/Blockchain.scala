@@ -152,14 +152,13 @@ class Blockchain(val blocks: List[Block]) {
       val kernel: String = timestamp.toString + stakeModifier.toString + candidate.toString
 
       // Create a positive BigInt from the kernel's hash
-//      val kernelHash = new BigInt(new java.math.BigInteger(1, kernel.sha1.bytes))
       val kernelHash = new BigInt(new java.math.BigInteger(1, kernel.sha1.bytes))
 
       // Interpret the HashTarget (which is a string) as a hex number
       val targetHash = new BigInt(new java.math.BigInteger(Const.HashTarget, 16))
 
-            def stringWithLeadingZeroes(d: BigInt): String = "%040x".format(d)
-            println(stringWithLeadingZeroes(kernelHash) + " <= " + stringWithLeadingZeroes(targetHash * amount) + " (" + (kernelHash <= (targetHash * amount)) + ")")
+//      def stringWithLeadingZeroes(d: BigInt): String = "%040x".format(d)
+//      println(stringWithLeadingZeroes(kernelHash) + " <= " + stringWithLeadingZeroes(targetHash * amount) + " (" + (kernelHash <= (targetHash * amount)) + ")")
 
       kernelHash <= (targetHash * amount)
     }

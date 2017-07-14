@@ -1,10 +1,12 @@
 package org.byzantine.pos
 
 import akka.actor.{ActorRef, ActorSystem, Props}
-
+import akka.pattern.ask
+import akka.util.Timeout
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
 import scala.language.postfixOps
+import scala.concurrent.Await
 import scala.util.Random
 
 object Akka extends App {
@@ -45,10 +47,22 @@ object Akka extends App {
     val ln = scala.io.StdIn.readLine()
 
     if (ln.contains('S')) {
-      val possibleSender = randomNodeID()
       val receiver = randomNodeID()
+      val nodeIDs = (0 until N).toList
+      var sent = false
 
-      nodes(possibleSender) ! Node.TransferMsg(Address(possibleSender), Address(receiver), 5)
+      for (sender <- scala.util.Random.shuffle(nodeIDs)) {
+        if (!sent) {
+          val future = nodes(sender).ask(Node.TransferMsg(Address(sender), Address(receiver), 5))(1 seconds)
+          sent = sent || Await.result(future, 1 seconds).asInstanceOf[Boolean]
+        }
+      }
+    }
+    else if(ln.contains('M')) {
+      nodes.head ! Node.MemPoolMsg
+    }
+    else if (ln.contains('B')) {
+      nodes.head ! Node.BlockchainMsg
     }
 
     ok = ln != ""
