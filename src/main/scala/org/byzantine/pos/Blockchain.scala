@@ -251,23 +251,25 @@ class BlockTree {
     return block.hash
   }
 
-  private def get(hash: Hash): Option[Block] = blocks get hash
+  def knownBlockHashes: Set[Hash] = blocks.keys.toSet
 
-  private def getOrError(hash: Hash): Block = {
+  def get(hash: Hash): Option[Block] = blocks get hash
+
+  def getOrError(hash: Hash): Block = {
     (this get hash) match {
       case Some(x) => x
       case None => throw new Exception(s"We don't have block with hash $hash!")
     }
   }
 
-  private def have(hash: Hash): Boolean = {
+  def have(hash: Hash): Boolean = {
     (this get hash) match {
       case Some(x) => true
       case None => false
     }
   }
 
-  private def have(block: Block): Boolean = this have (block.hash)
+  def have(block: Block): Boolean = this have (block.hash)
 
   private def havePrevOf(block: Block): Boolean = this have block.prevBlockHash
 

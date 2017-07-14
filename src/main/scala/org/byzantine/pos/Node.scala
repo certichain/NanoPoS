@@ -4,54 +4,92 @@ import java.time.Instant
 
 import akka.actor.{Actor, ActorRef}
 import akka.event.Logging
-
 import scala.collection.mutable
-import scala.collection.mutable.ListBuffer
 import scala.language.postfixOps
-
 
 // Sent  by the network
 abstract class Message
 case class BlockMsg(block: Block) extends Message
 case class TransactionMsg(tx: Transaction) extends Message
+case class InvMsg(known: Set[Hash]) extends Message
+case class GetDataMsg(hash: Hash) extends Message
+case class ConnectMsg(peer: ActorRef) extends Message
+
 
 // For now, we (unreasonably) assume every node talks directly with every other node, so there's no need
 // to relay/gossip information you receive
 class Node(val nodeID: Int) extends Actor {
+  val log = Logging(context.system, this)
+
   val blockTree = new BlockTree()
   val txPool = new mutable.HashMap[Hash, Transaction]()
 
-  val peers = new ListBuffer[ActorRef]
+  object Peers {
+    private val peers = new mutable.HashSet[ActorRef]()
+    private val informed = new mutable.HashSet[ActorRef]() // Peers that we've told about ourselves
 
-  def peerList = peers.toList
+    def number: Int = peers.size
+    def names: List[String] = peers.map(p => p.toString).toList
 
-  val log = Logging(context.system, this)
+    def addPeer(peer: ActorRef): Unit = {
+      peers += peer
 
-  def chain() = blockTree.chain
+      if (!informed.contains(peer)) {
+        peer ! ConnectMsg(self)
+        informed += peer
+      }
+    }
+
+    def gossip(message: Message, peers: Set[ActorRef] = peers.toSet): Unit = {
+      for (peer <- peers) {
+        peer ! message
+      }
+    }
+
+  }
+
+//  def gossip(message: Message, except: ActorRef): Unit =  gossip(message, peers.filter(x => x != except))
+
+  def chain = blockTree.chain
+  def knownHashes: Set[Hash] = blockTree.knownBlockHashes ++ txPool.keys.toSet
 
   def receive = {
-    case BlockMsg(block) => extend(block)
-    case TransactionMsg(tx) => txPool.put(tx.hash, tx)
+    // Network messages
+    case BlockMsg(block) => extend(block); Peers.gossip(InvMsg(knownHashes))
+    case TransactionMsg(tx) => txPool.put(tx.hash, tx); Peers.gossip(InvMsg(knownHashes))
+    case ConnectMsg(peer) => Peers.addPeer(peer)
 
-    case Node.AddPeerMsg(peer) => addPeer(peer)
-    case Node.TransferMsg(from, to, amount) => transfer(from, to, amount)
-    case Node.MintMsg(to) => mint(to)
-    case Node.MemPoolMsg => log.info("Mempool of size " + txPool.size + " => " + txPool.toList.toString())
-    case Node.BlockchainMsg => log.info("Block height: " + blockTree.chain.blocks.length + "\n" + blockTree.chain.toString)
+    case InvMsg(peerHashes) => {
+      val unknown: Set[Hash] = peerHashes -- knownHashes
+      for (hash <- unknown) {
+        sender() ! GetDataMsg(hash)
+      }
+    }
+
+    case GetDataMsg(hash) => {
+      txPool.get(hash) match {
+        case Some(tx) => sender() ! TransactionMsg(tx)
+        case None =>
+      }
+
+      blockTree.get(hash) match {
+        case Some(block) => sender() ! BlockMsg(block)
+        case None =>
+      }
+    }
+
+    // Node control commands – sent exclusively by supervisor, not other nodes
+    case Node.TransferCmd(from, to, amount) => transfer(from, to, amount)
+    case Node.MintCmd(to) => mint(to)
+    case Node.MemPoolCmd => sender() ! txPool.toSet
+    case Node.BlockchainCmd => sender() ! chain.top.hash
+    case Node.ListPeersCmd => log.info(Peers.number + " known peers: " + Peers.names)
 
     case _ =>
   }
 
-  def addPeer(peer: ActorRef): Unit = peers.append(peer)
-
-  private def sendToAllPeers(message: Message): Unit = {
-    for (peer <- peerList) {
-      peer ! message
-    }
-  }
-
-  private def extend(block: Block): Unit = {
-    if (blockTree.extensionPossibleWith(block)) {
+  def extend(block: Block): Unit = {
+    if (!blockTree.have(block) && blockTree.extensionPossibleWith(block)) {
       blockTree.extend(block)
 
       // Remove from txPool transactions that were included in this block
@@ -66,10 +104,11 @@ class Node(val nodeID: Int) extends Actor {
     if (canSend) {
       log.info(s"Sending $amount from $from to $to.")
       val tx = new Transaction(from, to, amount)
-      val msg = new TransactionMsg(tx)
+      val msg = TransactionMsg(tx)
 
       txPool.put(tx.hash, tx)
-      sendToAllPeers(msg)
+//      Peers.gossip(msg)
+      Peers.gossip(InvMsg(knownHashes))
     }
     sender() ! canSend
   }
@@ -77,7 +116,7 @@ class Node(val nodeID: Int) extends Actor {
   def mint(to: Address): Unit = {
     // Transactions that are acceptable on top of blockTree's current chain
     def acceptableTransactions(txList: List[Transaction], timestamp: Long, validPOS: ProofOfStake): List[Transaction] = {
-      val acceptedTransactions = new ListBuffer[Transaction]()
+      val acceptedTransactions = new mutable.ListBuffer[Transaction]()
 
       for (tx <- txList) {
         val candidateBlock = new Block(blockTree.top.hash, acceptedTransactions.toList ++ List(tx), timestamp, validPOS)
@@ -99,7 +138,7 @@ class Node(val nodeID: Int) extends Actor {
       if (blockTree.extensionPossibleWith(mintedBlock)) {
         extend(mintedBlock)
         log.info("Minted block " + mintedBlock.hash + " containing " + mintedBlock.tx.length + " transactions.\n" + mintedBlock)
-        sendToAllPeers(new BlockMsg(mintedBlock))
+        Peers.gossip(new BlockMsg(mintedBlock))
 
         for (tx <- mintedBlock.tx) {
           txPool.remove(tx.hash)
@@ -112,9 +151,10 @@ class Node(val nodeID: Int) extends Actor {
 object Node {
   // Sent locally to control the actor
   abstract class ControlMessage extends Message
-  case class AddPeerMsg(peer: ActorRef) extends ControlMessage
-  case class TransferMsg(from: Address, to: Address, amount: Int) extends ControlMessage
-  case class MintMsg(to: Address) extends ControlMessage
-  case class MemPoolMsg() extends ControlMessage
-  case class BlockchainMsg() extends ControlMessage
+  case class TransferCmd(from: Address, to: Address, amount: Int) extends ControlMessage
+  case class MintCmd(to: Address) extends ControlMessage
+  case class MemPoolCmd() extends ControlMessage
+  case class BlockchainCmd() extends ControlMessage
+  case class ListPeersCmd() extends ControlMessage
+
 }
