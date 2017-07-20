@@ -24,5 +24,5 @@ class Block[P](val prevBlockHash: Hash, val tx: List[Transaction], val timestamp
 
 }
 
-case class GenericGenesisBlock[P](initP : P)
+case class GenesisBlock[P](initP : P)
     extends Block(Const.GenesisPrevHash, List(Const.GenesisCoinbase), Const.GenesisTimestamp, initP)

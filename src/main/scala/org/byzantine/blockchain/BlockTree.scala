@@ -1,21 +1,21 @@
-package org.byzantine.blockchain.pos
-
-import org.byzantine.blockchain.{Block, Blockchain, Hash}
+package org.byzantine.blockchain
 
 import scala.collection.mutable
 
 /**
-  * @author Ilya Sergey
+  *
+  * @param initBlock genesis block
+  * @tparam P a type of "proof"
   */
-class BlockTree {
+class BlockTree[P](initBlock : GenesisBlock[P]) {
 
-  type MyBlock = Block[ProofOfStake]
-  type MyBlockchain = Blockchain[ProofOfStake]
+  type MyBlock = Block[P]
+  type MyBlockchain = Blockchain[P]
 
-  // TODO: Why GenesisBlock is not in blocks?
+  // TODO: Why GenesisBlock is not in blocks initially?
   // TDO: Refactor it so blocks with topHash would be the only mutable structure
   private val blocks = new mutable.HashMap[Hash, MyBlock]()
-  private var topHash = add(PoSGenesisBlock)
+  private var topHash = add(initBlock)
 
   private val missingParents = new mutable.HashSet[Hash]()
   private val orphanBlocks = new mutable.HashSet[MyBlock]()
@@ -107,7 +107,7 @@ class BlockTree {
     }
 
     val chain = blocks.toList.reverse
-    assert(chain.head == PoSGenesisBlock, "Got a chain that doesn't start with the GenesisBlock!")
+    assert(chain.head == initBlock, "Got a chain that doesn't start with the GenesisBlock!")
 
     Blockchain(chain)
   }

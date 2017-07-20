@@ -9,7 +9,7 @@ import org.byzantine.blockchain._
 // We are assuming that these can't be forged (e.g. they're cryptographically signed by the validator)
 case class ProofOfStake(timestamp: Long, stakeModifier: Hash, validator: Address)
 
-object PoSGenesisBlock extends GenericGenesisBlock(Const.GenesisProofOfStake)
+object PoSGenesisBlock extends GenesisBlock(Const.GenesisProofOfStake)
 
 
 /**
@@ -29,7 +29,9 @@ case class POSHelper(chain: Blockchain[ProofOfStake]) {
   while (processNextBlock()) {}
 
   def stake(stakeholder: Address): Int = chainState.balance(stakeholder)
+
   def stakeModifier: Hash = chainTop.hash
+
   private def timestamp(): Long = chainTop.timestamp
 
   private def validatorAcceptance(timestamp: Long, candidate: Address): Boolean = {

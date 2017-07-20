@@ -1,12 +1,12 @@
 package org.byzantine.blockchain
 
-import org.byzantine.blockchain.pos.{BlockTree, PoSGenesisBlock}
+import org.byzantine.blockchain.pos.PoSGenesisBlock
 import org.scalatest._
 
 class BlockchainSpec extends FlatSpec with Matchers {
   val mockPOS = Const.GenesisProofOfStake
   trait NewBlockTree {
-    val bt = new BlockTree()
+    val bt = new BlockTree(PoSGenesisBlock)
   }
 
   "A new BlockTree" should "have exactly 1 block in it" in new NewBlockTree {
