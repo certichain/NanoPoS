@@ -18,6 +18,9 @@ case class GetDataMsg(hash: Hash) extends Message
 case class ConnectMsg(peer: ActorRef) extends Message
 
 
+// TODO: Can we refactor this class in a way that it is only parameterized by the PoS abstractions
+// or there is something inherent to PoS here?
+
 // For now, we (unreasonably) assume every node talks directly with every other node, so there's no need
 // to relay/gossip information you receive
 class Node(val nodeID: Int) extends Actor {
@@ -61,13 +64,14 @@ class Node(val nodeID: Int) extends Actor {
     case TransactionMsg(tx) => txPool.put(tx.hash, tx); Peers.gossip(InvMsg(knownHashes))
     case ConnectMsg(peer) => Peers.addPeer(peer)
 
-    case InvMsg(peerHashes) =>
+    case InvMsg(peerHashes) => {
       val unknown: Set[Hash] = peerHashes -- knownHashes
       for (hash <- unknown) {
         sender() ! GetDataMsg(hash)
       }
+    }
 
-    case GetDataMsg(hash) =>
+    case GetDataMsg(hash) => {
       txPool.get(hash) match {
         case Some(tx) => sender() ! TransactionMsg(tx)
         case None =>
@@ -77,6 +81,7 @@ class Node(val nodeID: Int) extends Actor {
         case Some(block) => sender() ! PoSBlockMsg(block)
         case None =>
       }
+    }
 
     // Node control commands – sent exclusively by supervisor, not other nodes
     case Node.TransferCmd(from, to, amount) => transfer(from, to, amount)

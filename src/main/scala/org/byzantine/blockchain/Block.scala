@@ -7,6 +7,8 @@ import java.time.Instant
   *
   * @tparam P proof object, to be instantiated with PoS
   */
+
+// TODO: What are the properties of the proof object relating to blockchain?
 class Block[P](val prevBlockHash: Hash, val tx: List[Transaction], val timestamp: Long, val proof: P) {
 
   require(haveAtMostOneCoinbase, "Blocks must have no more than one coinbase transaction.")

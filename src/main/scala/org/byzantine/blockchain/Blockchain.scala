@@ -35,7 +35,7 @@ case class State[P](blocks: List[Block[P]]) {
 
 case class Blockchain[P](blocks: List[Block[P]]) {
   require(blocks.nonEmpty, "Blockchains must have length > 0.")
-  require(blocks.head == PoSGenesisBlock, "Blockchains must start at the genesis block.")
+//  require(blocks.head == PoSGenesisBlock, "Blockchains must start at the genesis block.")
 
   override def toString: String = "Blockchain[" + blocks.mkString(", ") + "]"
   val top: Block[P] = blocks.last
