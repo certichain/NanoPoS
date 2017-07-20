@@ -1,5 +1,6 @@
-package org.byzantine.pos
+package org.byzantine.blockchain
 
+import org.byzantine.blockchain.pos.{BlockTree, PoSGenesisBlock}
 import org.scalatest._
 
 class BlockchainSpec extends FlatSpec with Matchers {
@@ -13,7 +14,7 @@ class BlockchainSpec extends FlatSpec with Matchers {
   }
 
   it should "start with the genesis block" in new NewBlockTree {
-    bt.chain.blocks.head should be (GenesisBlock)
+    bt.chain.blocks.head should be (PoSGenesisBlock)
   }
 
   def shouldNotConstruct(f: () => Any): Unit = {
@@ -27,12 +28,12 @@ class BlockchainSpec extends FlatSpec with Matchers {
   }
 
   "A blockchain" should "always have length >= 1 (otherwise can't be constructed)" in {
-    shouldNotConstruct(() => new Blockchain(List()))
+    shouldNotConstruct(() => Blockchain(Nil))
   }
 
   it should "always start with the genesis block (otherwise can't be constructed)" in {
     val nonGenesisBlocks = List(
-      new Block(new Hash(GenesisBlock), List(), mockPOS),
+      new Block(new Hash(PoSGenesisBlock), List(), mockPOS),
       new Block(new Hash("Genesis"), List(), mockPOS),
       new Block(new Hash("junk"), List(new Coinbase(Address(3))), mockPOS)
     )

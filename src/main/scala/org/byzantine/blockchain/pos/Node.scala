@@ -1,15 +1,17 @@
-package org.byzantine.pos
+package org.byzantine.blockchain.pos
 
 import java.time.Instant
 
 import akka.actor.{Actor, ActorRef}
 import akka.event.Logging
+import org.byzantine.blockchain._
+
 import scala.collection.mutable
 import scala.language.postfixOps
 
 // Sent  by the network
 abstract class Message
-case class BlockMsg(block: Block) extends Message
+case class PoSBlockMsg(block: Block[ProofOfStake]) extends Message
 case class TransactionMsg(tx: Transaction) extends Message
 case class InvMsg(known: Set[Hash]) extends Message
 case class GetDataMsg(hash: Hash) extends Message
@@ -55,7 +57,7 @@ class Node(val nodeID: Int) extends Actor {
 
   def receive = {
     // Network messages
-    case BlockMsg(block) => extend(block); Peers.gossip(InvMsg(knownHashes))
+    case PoSBlockMsg(block) => extend(block); Peers.gossip(InvMsg(knownHashes))
     case TransactionMsg(tx) => txPool.put(tx.hash, tx); Peers.gossip(InvMsg(knownHashes))
     case ConnectMsg(peer) => Peers.addPeer(peer)
 
@@ -73,7 +75,7 @@ class Node(val nodeID: Int) extends Actor {
       }
 
       blockTree.get(hash) match {
-        case Some(block) => sender() ! BlockMsg(block)
+        case Some(block) => sender() ! PoSBlockMsg(block)
         case None =>
       }
     }
@@ -88,8 +90,8 @@ class Node(val nodeID: Int) extends Actor {
     case _ =>
   }
 
-  def extend(block: Block): Unit = {
-    if (!blockTree.have(block) && blockTree.extensionPossibleWith(block)) {
+  def extend(block: Block[ProofOfStake]): Unit = {
+    if (!blockTree.has(block) && blockTree.extensionPossibleWith(block)) {
       blockTree.extend(block)
 
       // Remove from txPool transactions that were included in this block
@@ -129,16 +131,18 @@ class Node(val nodeID: Int) extends Actor {
     }
 
     val currentTimestamp = Instant.now.getEpochSecond
-    val pos = new ProofOfStake(currentTimestamp, chain.consensus.POS.stakeModifier, Address(nodeID))
+    val posHelper = POSHelper(chain)
+
+    val pos = ProofOfStake(currentTimestamp, posHelper.stakeModifier, Address(nodeID))
     val okTransactions = acceptableTransactions(txPool.values.toList, currentTimestamp, pos)
 
-    if (okTransactions.nonEmpty && chain.consensus.POS.stake(Address(nodeID)) != 0 && chain.consensus.POS.validate(pos)) {
+    if (okTransactions.nonEmpty && posHelper.stake(Address(nodeID)) != 0 && posHelper.validate(pos)) {
       val mintedBlock = new Block(blockTree.top.hash, new Coinbase(to) :: okTransactions, currentTimestamp, pos)
 
       if (blockTree.extensionPossibleWith(mintedBlock)) {
         extend(mintedBlock)
         log.info("Minted block " + mintedBlock.hash + " containing " + mintedBlock.tx.length + " transactions.\n" + mintedBlock)
-        Peers.gossip(new BlockMsg(mintedBlock))
+        Peers.gossip(PoSBlockMsg(mintedBlock))
 
         for (tx <- mintedBlock.tx) {
           txPool.remove(tx.hash)

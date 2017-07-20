@@ -1,15 +1,15 @@
-package org.byzantine.pos
+package org.byzantine.blockchain.pos
 
 import akka.actor.{ActorRef, ActorSystem, PoisonPill, Props}
 import akka.pattern.ask
-import akka.util.Timeout
+import org.byzantine.blockchain._
 
+import scala.collection.mutable
 import scala.collection.mutable.ListBuffer
+import scala.concurrent.Await
 import scala.concurrent.duration._
 import scala.language.postfixOps
-import scala.concurrent.Await
 import scala.util.Random
-import scala.collection.mutable
 
 object Demo extends App {
   val system = ActorSystem("pos")
