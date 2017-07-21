@@ -11,7 +11,7 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 import scala.util.Random
 
-object Demo extends App with NetworkMessages[ActorRef, ProofOfStake] with NodeCommandMessages with MinterCommandMessages {
+object Demo extends App with NodeCommandMessages with MinterCommandMessages {
   val system = ActorSystem("pos")
   val N: Int = 5
   val S: Int = 5
@@ -65,7 +65,7 @@ object Demo extends App with NetworkMessages[ActorRef, ProofOfStake] with NodeCo
       var sent = false
       for (sender <- shuffledNodesWithIds) {
         if (!sent) {
-          val future = (sender._2).ask(TransferCmd(Address(sender._1), Address(receiverID), 5))(5 seconds)
+          val future = sender._2.ask(TransferCmd(Address(sender._1), Address(receiverID), 5))(5 seconds)
           sent = sent || Await.result(future, 5 seconds).asInstanceOf[Boolean]
         }
       }
