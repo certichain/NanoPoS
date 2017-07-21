@@ -17,7 +17,7 @@ case class State[P](blocks: List[Block[P]]) {
   private def setBalance(of: Address, amount: Int): Unit = balanceSheet.put(of, amount)
 
   def processBlock(block: Block[P]): Unit = {
-    // To simply the logic: can always transfer CoinbaseAmount from CoinbaseSource
+    // To simplify the logic: can always transfer CoinbaseAmount from CoinbaseSource
     setBalance(Const.CoinbaseSourceAddress, Const.CoinbaseAmount)
 
     for (tx <- block.tx) {

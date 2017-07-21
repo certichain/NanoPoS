@@ -44,16 +44,10 @@ case class POSHelper(chain: Blockchain[ProofOfStake]) {
     // Interpret the HashTarget (which is a string) as a hex number
     val targetHash = new BigInt(new java.math.BigInteger(Const.HashTarget, 16))
 
-    //      def stringWithLeadingZeroes(d: BigInt): String = "%040x".format(d)
-    //      println(stringWithLeadingZeroes(kernelHash) + " <= " + stringWithLeadingZeroes(targetHash * amount) + " (" + (kernelHash <= (targetHash * amount)) + ")")
-
     kernelHash <= (targetHash * amount)
   }
 
   def validate(pos: ProofOfStake): Boolean = {
-    //      println(pos.stakeModifier + s" == $stakeModifier (" + (pos.stakeModifier == stakeModifier).toString + ")")
-    //      println("math.abs(" + pos.timestamp + s" - $timestamp) <= " + Const.MaxAcceptedTimestampDiff + " (" + (math.abs(pos.timestamp - timestamp) <= Const.MaxAcceptedTimestampDiff).toString + ")")
-
     pos.stakeModifier == stakeModifier &&
         math.abs(pos.timestamp - timestamp) <= Const.MaxAcceptedTimestampDiff &&
         validatorAcceptance(pos.timestamp, pos.validator)
@@ -76,4 +70,3 @@ case class POSHelper(chain: Blockchain[ProofOfStake]) {
     }
   }
 }
-

@@ -14,16 +14,23 @@ import scala.util.Random
 object Demo extends App {
   val system = ActorSystem("pos")
   val N: Int = 1000
+  val S: Int = 1000
   val numAssignedPeers = 3
 
   // Create nodes
   val nodesBuffer = new ListBuffer[Tuple2[Int, ActorRef]]()
+  val mintersBuffer = new ListBuffer[Tuple2[Int, ActorRef]]()
 
-  for (i <- 0 until N) {
-    nodesBuffer.append((i, system.actorOf(Props(classOf[Node], i), i.toString)))
+  for (i <- 0 until S) {
+    mintersBuffer.append((i, system.actorOf(Props(classOf[Minter], i), i.toString)))
   }
 
-  def nodes = nodesBuffer.map(el => el._2).toList
+  for (i <- S until N) {
+    nodesBuffer.append((i, system.actorOf(Props(classOf[Node[ProofOfStake]], i, PoSGenesisBlock), i.toString)))
+  }
+
+
+  def nodes = mintersBuffer.map(el => el._2).toList ++ nodesBuffer.map(el => el._2).toList
   // Inform them about each other
   for (initNode <- nodes) {
     val assignedPeers = Random.shuffle(nodes).take(numAssignedPeers)
@@ -36,11 +43,11 @@ object Demo extends App {
   import system.dispatcher
   def runnable(f: => Unit): Runnable = new Runnable() { def run() = f }
 
-  // All nodes try to mint from time to time
+  // All minters try to mint from time to time
   system.scheduler.schedule(0 seconds, 1 seconds, runnable {
-    val nodesWithIds = nodesBuffer.toList
-    for (node <- nodesWithIds) {
-      node._2 ! Node.MintCmd(Address(node._1))
+    val mintersWithIds = mintersBuffer.toList
+    for (minter <- mintersWithIds) {
+      minter._2 ! Minter.MintCmd(Address(minter._1))
     }
   })
 
@@ -52,7 +59,7 @@ object Demo extends App {
     val ln = scala.io.StdIn.readLine()
 
     if (ln.contains('S')) {
-      val shuffledNodesWithIds = scala.util.Random.shuffle(nodesBuffer.toList)
+      val shuffledNodesWithIds = scala.util.Random.shuffle(mintersBuffer.toList ++ nodesBuffer.toList)
       val receiverID = shuffledNodesWithIds.last._1
 
       var sent = false
@@ -92,7 +99,12 @@ object Demo extends App {
     else if (ln.length > 0 && ln.head == 'K') {
       val id = ln.tail.toInt
       nodes(id) ! PoisonPill
-      nodesBuffer -= Tuple2(id, nodes(id))
+
+      if (id < S) {
+        mintersBuffer -= Tuple2(id, nodes(id))
+      } else {
+        nodesBuffer -= Tuple2(id, nodes(id))
+      }
     }
 
     else if (ln.contains('P')) {

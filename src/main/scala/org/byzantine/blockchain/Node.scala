@@ -1,32 +1,23 @@
-package org.byzantine.blockchain.pos
-
-import java.time.Instant
+package org.byzantine.blockchain
 
 import akka.actor.{Actor, ActorRef}
 import akka.event.Logging
-import org.byzantine.blockchain._
 
 import scala.collection.mutable
 import scala.language.postfixOps
 
 // Sent  by the network
 abstract class Message
-case class PoSBlockMsg(block: Block[ProofOfStake]) extends Message
+case class BlockMsg[P](block: Block[P]) extends Message
 case class TransactionMsg(tx: Transaction) extends Message
 case class InvMsg(known: Set[Hash]) extends Message
 case class GetDataMsg(hash: Hash) extends Message
 case class ConnectMsg(peer: ActorRef) extends Message
 
-
-// TODO: Can we refactor this class in a way that it is only parameterized by the PoS abstractions
-// or there is something inherent to PoS here?
-
-// For now, we (unreasonably) assume every node talks directly with every other node, so there's no need
-// to relay/gossip information you receive
-class Node(val nodeID: Int) extends Actor {
+class Node[P](val nodeID: Int, val genesisBlock: GenesisBlock[P]) extends Actor {
   val log = Logging(context.system, this)
 
-  val blockTree = new BlockTree(PoSGenesisBlock)
+  val blockTree = new BlockTree(genesisBlock)
   val txPool = new mutable.HashMap[Hash, Transaction]()
 
   object Peers {
@@ -53,14 +44,12 @@ class Node(val nodeID: Int) extends Actor {
 
   }
 
-//  def gossip(message: Message, except: ActorRef): Unit =  gossip(message, peers.filter(x => x != except))
-
   def chain = blockTree.chain
   def knownHashes: Set[Hash] = blockTree.knownBlockHashes ++ txPool.keys.toSet
 
   def receive = {
     // Network messages
-    case PoSBlockMsg(block) => extend(block); Peers.gossip(InvMsg(knownHashes))
+    case BlockMsg(block) => extend(block.asInstanceOf[Block[P]]); Peers.gossip(InvMsg(knownHashes))
     case TransactionMsg(tx) => txPool.put(tx.hash, tx); Peers.gossip(InvMsg(knownHashes))
     case ConnectMsg(peer) => Peers.addPeer(peer)
 
@@ -78,22 +67,19 @@ class Node(val nodeID: Int) extends Actor {
       }
 
       blockTree.get(hash) match {
-        case Some(block) => sender() ! PoSBlockMsg(block)
+        case Some(block) => sender() ! BlockMsg(block)
         case None =>
       }
     }
 
     // Node control commands – sent exclusively by supervisor, not other nodes
     case Node.TransferCmd(from, to, amount) => transfer(from, to, amount)
-    case Node.MintCmd(to) => mint(to)
     case Node.MemPoolCmd => sender() ! txPool.toSet
     case Node.BlockchainCmd => sender() ! chain.top.hash
     case Node.ListPeersCmd => log.info(Peers.number + " known peers: " + Peers.names)
-
-    case _ =>
   }
 
-  def extend(block: Block[ProofOfStake]): Unit = {
+  def extend(block: Block[P]): Unit = {
     if (!blockTree.has(block) && blockTree.extensionPossibleWith(block)) {
       blockTree.extend(block)
 
@@ -117,51 +103,13 @@ class Node(val nodeID: Int) extends Actor {
     }
     sender() ! canSend
   }
-
-  def mint(to: Address): Unit = {
-    // Transactions that are acceptable on top of blockTree's current chain
-    def acceptableTransactions(txList: List[Transaction], timestamp: Long, validPOS: ProofOfStake): List[Transaction] = {
-      val acceptedTransactions = new mutable.ListBuffer[Transaction]()
-
-      for (tx <- txList) {
-        val candidateBlock = new Block(blockTree.top.hash, acceptedTransactions.toList ++ List(tx), timestamp, validPOS)
-        if (blockTree.extensionPossibleWith(candidateBlock)) {
-          acceptedTransactions += tx
-        }
-      }
-
-      acceptedTransactions.toList
-    }
-
-    val currentTimestamp = Instant.now.getEpochSecond
-    val posHelper = POSHelper(chain)
-
-    val pos = ProofOfStake(currentTimestamp, posHelper.stakeModifier, Address(nodeID))
-    val okTransactions = acceptableTransactions(txPool.values.toList, currentTimestamp, pos)
-
-    if (okTransactions.nonEmpty && posHelper.stake(Address(nodeID)) != 0 && posHelper.validate(pos)) {
-      val mintedBlock = new Block(blockTree.top.hash, new Coinbase(to) :: okTransactions, currentTimestamp, pos)
-
-      if (blockTree.extensionPossibleWith(mintedBlock)) {
-        extend(mintedBlock)
-        log.info("Minted block " + mintedBlock.hash + " containing " + mintedBlock.tx.length + " transactions.\n" + mintedBlock)
-        Peers.gossip(PoSBlockMsg(mintedBlock))
-
-        for (tx <- mintedBlock.tx) {
-          txPool.remove(tx.hash)
-        }
-      }
-    }
-  }
 }
 
 object Node {
   // Sent locally to control the actor
   abstract class ControlMessage extends Message
   case class TransferCmd(from: Address, to: Address, amount: Int) extends ControlMessage
-  case class MintCmd(to: Address) extends ControlMessage
   case class MemPoolCmd() extends ControlMessage
   case class BlockchainCmd() extends ControlMessage
   case class ListPeersCmd() extends ControlMessage
-
 }

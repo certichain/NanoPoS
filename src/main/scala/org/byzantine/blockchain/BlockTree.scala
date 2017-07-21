@@ -12,8 +12,7 @@ class BlockTree[P](initBlock : GenesisBlock[P]) {
   type MyBlock = Block[P]
   type MyBlockchain = Blockchain[P]
 
-  // TODO: Why GenesisBlock is not in blocks initially?
-  // TDO: Refactor it so blocks with topHash would be the only mutable structure
+  // TODO: Refactor it so blocks with topHash would be the only mutable structure
   private val blocks = new mutable.HashMap[Hash, MyBlock]()
   private var topHash = add(initBlock)
 
