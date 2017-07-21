@@ -11,7 +11,7 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 import scala.util.Random
 
-object Demo extends App with NodeCommandMessages with MinterCommandMessages {
+object Demo extends App with NodeCommandMessages {
   val system = ActorSystem("pos")
   val N: Int = 5
   val S: Int = 5

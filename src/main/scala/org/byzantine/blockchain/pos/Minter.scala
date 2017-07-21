@@ -4,9 +4,7 @@ import scala.collection.mutable
 import java.time.Instant
 import akka.actor.{Actor, ActorRef}
 
-trait MinterCommandMessages {
-  case class MintCmd(to: Address) extends ControlMessage
-}
+case class MintCmd(to: Address) extends ControlMessage
 
 trait MinterRole[Ref] extends NodeRole[Ref, ProofOfStake] {}
 
@@ -50,7 +48,7 @@ trait MinterRoleImpl[Ref] extends NodeRoleImpl[Ref, ProofOfStake] with MinterRol
   }
 }
 
-class AkkaMinter(nodeID: Int) extends AkkaNode[ProofOfStake](nodeID, PoSGenesisBlock) with MinterRoleImpl[ActorRef] with MinterCommandMessages {
+class AkkaMinter(nodeID: Int) extends AkkaNode[ProofOfStake](nodeID, PoSGenesisBlock) with MinterRoleImpl[ActorRef] {
   override def receive: Receive = super.receive orElse {
     case MintCmd(to) => mint(to)
     case x => log.info("Minter received unknown msg: " + x)
