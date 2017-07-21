@@ -2,15 +2,16 @@ package org.byzantine.blockchain.pos
 import org.byzantine.blockchain._
 import scala.collection.mutable
 import java.time.Instant
+import akka.actor.{Actor, ActorRef}
 
+trait MinterCommandMessages {
+  case class MintCmd(to: Address) extends ControlMessage
+}
 
-class Minter(nodeID: Int) extends Node(nodeID, PoSGenesisBlock) {
+trait MinterRole[Ref] extends NodeRole[Ref, ProofOfStake] {}
 
-  override def receive = super.receive orElse {
-    case Minter.MintCmd(to) => mint(to)
-  }
-
-  def mint(to: Address): Unit = {
+trait MinterRoleImpl[Ref] extends NodeRoleImpl[Ref, ProofOfStake] with MinterRole[Ref] {
+  def mint(to: Address): ToSend = {
     // Transactions that are acceptable on top of blockTree's current chain
     def acceptableTransactions(txList: List[Transaction], timestamp: Long, validProof: ProofOfStake): List[Transaction] = {
       val acceptedTransactions = new mutable.ListBuffer[Transaction]()
@@ -36,18 +37,23 @@ class Minter(nodeID: Int) extends Node(nodeID, PoSGenesisBlock) {
 
       if (blockTree.extensionPossibleWith(mintedBlock)) {
         extend(mintedBlock)
-        log.info("Minted block " + mintedBlock.hash + " containing " + mintedBlock.tx.length + " transactions.\n" + mintedBlock)
-        Peers.gossip(BlockMsg(mintedBlock))
-
         for (tx <- mintedBlock.tx) {
           txPool.remove(tx.hash)
         }
+        Peers.gossip(BlockMsg(mintedBlock))
+      } else {
+        emitZero
       }
+    } else {
+      emitZero
     }
   }
 }
 
-object Minter {
-  case class MintCmd(to: Address) extends Node.ControlMessage
+class AkkaMinter(nodeID: Int) extends AkkaNode[ProofOfStake](nodeID, PoSGenesisBlock) with MinterRoleImpl[ActorRef] with MinterCommandMessages {
+  override def receive: Receive = super.receive
+//  orElse {
+//    case MintCmd(to) => mint(to)
+//    case x => log.info("Minter received unknown msg: " + x)
+//  }
 }
-

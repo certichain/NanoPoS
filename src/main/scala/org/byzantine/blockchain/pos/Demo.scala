@@ -11,10 +11,10 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 import scala.util.Random
 
-object Demo extends App {
+object Demo extends App with NetworkMessages[ActorRef, ProofOfStake] with NodeCommandMessages with MinterCommandMessages {
   val system = ActorSystem("pos")
-  val N: Int = 1000
-  val S: Int = 1000
+  val N: Int = 5
+  val S: Int = 5
   val numAssignedPeers = 3
 
   // Create nodes
@@ -22,11 +22,11 @@ object Demo extends App {
   val mintersBuffer = new ListBuffer[Tuple2[Int, ActorRef]]()
 
   for (i <- 0 until S) {
-    mintersBuffer.append((i, system.actorOf(Props(classOf[Minter], i), i.toString)))
+    mintersBuffer.append((i, system.actorOf(Props(classOf[AkkaMinter], i), i.toString)))
   }
 
   for (i <- S until N) {
-    nodesBuffer.append((i, system.actorOf(Props(classOf[Node[ProofOfStake]], i, PoSGenesisBlock), i.toString)))
+    nodesBuffer.append((i, system.actorOf(Props(classOf[AkkaNode[ProofOfStake]], i, PoSGenesisBlock), i.toString)))
   }
 
 
@@ -43,13 +43,13 @@ object Demo extends App {
   import system.dispatcher
   def runnable(f: => Unit): Runnable = new Runnable() { def run() = f }
 
-  // All minters try to mint from time to time
-  system.scheduler.schedule(0 seconds, 1 seconds, runnable {
-    val mintersWithIds = mintersBuffer.toList
-    for (minter <- mintersWithIds) {
-      minter._2 ! Minter.MintCmd(Address(minter._1))
-    }
-  })
+//  // All minters try to mint from time to time
+//  system.scheduler.schedule(0 seconds, 1 seconds, runnable {
+//    val mintersWithIds = mintersBuffer.toList
+//    for (minter <- mintersWithIds) {
+//      minter._2 ! MintCmd(Address(minter._1))
+//    }
+//  })
 
   val rand = new Random()
   def randomNodeID(): Int = rand.nextInt(N)
@@ -65,7 +65,7 @@ object Demo extends App {
       var sent = false
       for (sender <- shuffledNodesWithIds) {
         if (!sent) {
-          val future = (sender._2).ask(Node.TransferCmd(Address(sender._1), Address(receiverID), 5))(5 seconds)
+          val future = (sender._2).ask(TransferCmd(Address(sender._1), Address(receiverID), 5))(5 seconds)
           sent = sent || Await.result(future, 5 seconds).asInstanceOf[Boolean]
         }
       }
@@ -74,7 +74,7 @@ object Demo extends App {
       val mempools = new mutable.HashSet[Set[Tuple2[Hash, Transaction]]]()
 
       for (node <- nodes) {
-        val future = node.ask(Node.MemPoolCmd)(5 seconds)
+        val future = node.ask(MemPoolCmd)(5 seconds)
         val mp = Await.result(future, 5 seconds).asInstanceOf[Set[Tuple2[Hash, Transaction]]]
         mempools += mp
       }
@@ -87,7 +87,7 @@ object Demo extends App {
       val blockchainHeads = new mutable.HashSet[Hash]()
 
       for (node <- nodes) {
-        val future = node.ask(Node.BlockchainCmd)(5 seconds)
+        val future = node.ask(BlockchainCmd)(5 seconds)
         val bc = Await.result(future, 5 seconds).asInstanceOf[Hash]
         blockchainHeads += bc
       }
@@ -109,7 +109,7 @@ object Demo extends App {
 
     else if (ln.contains('P')) {
       for (node <- nodes) {
-        node ! Node.ListPeersCmd
+        node ! ListPeersCmd
       }
     }
 

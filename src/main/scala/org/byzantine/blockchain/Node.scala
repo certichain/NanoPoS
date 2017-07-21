@@ -6,80 +6,96 @@ import akka.event.Logging
 import scala.collection.mutable
 import scala.language.postfixOps
 
-// Sent  by the network
 abstract class Message
-case class BlockMsg[P](block: Block[P]) extends Message
-case class TransactionMsg(tx: Transaction) extends Message
-case class InvMsg(known: Set[Hash]) extends Message
-case class GetDataMsg(hash: Hash) extends Message
-case class ConnectMsg(peer: ActorRef) extends Message
+abstract class ControlMessage extends Message
 
-class Node[P](val nodeID: Int, val genesisBlock: GenesisBlock[P]) extends Actor {
-  val log = Logging(context.system, this)
+trait NetworkMessages[Ref, P] {
+  case class BlockMsg[P](block: Block[P]) extends Message
+  case class TransactionMsg(tx: Transaction) extends Message
+  case class InvMsg(sender: Ref, known: Set[Hash]) extends Message
+  case class GetDataMsg(requester: Ref, hash: Hash) extends Message
+  case class ConnectMsg(peer: Ref) extends Message
+}
 
-  val blockTree = new BlockTree(genesisBlock)
-  val txPool = new mutable.HashMap[Hash, Transaction]()
+trait NodeCommandMessages {
+  case class TransferCmd(from: Address, to: Address, amount: Int) extends ControlMessage
+  case class MemPoolCmd() extends ControlMessage
+  case class BlockchainCmd() extends ControlMessage
+  case class ListPeersCmd() extends ControlMessage
+}
 
-  object Peers {
-    private val peers = new mutable.HashSet[ActorRef]()
-    private val informed = new mutable.HashSet[ActorRef]() // Peers that we've told about ourselves
+trait NodeRole[Ref, P] extends NetworkMessages[Ref, P] {
+  val nodeID: Int
+  val genesisBlock: GenesisBlock[P]
 
-    def number: Int = peers.size
-    def names: List[String] = peers.map(p => p.toString).toList
+  type ToSend = Seq[(Ref, Message)]
+  type Step = PartialFunction[Any, ToSend]
 
-    def addPeer(peer: ActorRef): Unit = {
-      peers += peer
+  protected val self: Ref
 
-      if (!informed.contains(peer)) {
-        peer ! ConnectMsg(self)
-        informed += peer
-      }
-    }
+  def step: Step
 
-    def gossip(message: Message, peers: Set[ActorRef] = peers.toSet): Unit = {
-      for (peer <- peers) {
-        peer ! message
-      }
-    }
+  protected def emitOne(a: Ref, msg: Message) = Seq((a, msg))
+  protected def emitMany(a: Ref, msgs: Seq[Message]): ToSend = msgs.map(msg => (a, msg))
+  protected def emitMany(as: Seq[Ref], f: Ref => Message): ToSend = as.zip(as.map(a => f(a)))
+  protected def emitZero: ToSend = Seq.empty
+}
 
-  }
+trait NodeRoleImpl[Ref, P] extends NodeRole[Ref, P]  {
+  protected val blockTree = new BlockTree(genesisBlock)
+  protected val txPool = new mutable.HashMap[Hash, Transaction]()
 
   def chain = blockTree.chain
   def knownHashes: Set[Hash] = blockTree.knownBlockHashes ++ txPool.keys.toSet
 
-  def receive = {
-    // Network messages
-    case BlockMsg(block) => extend(block.asInstanceOf[Block[P]]); Peers.gossip(InvMsg(knownHashes))
-    case TransactionMsg(tx) => txPool.put(tx.hash, tx); Peers.gossip(InvMsg(knownHashes))
-    case ConnectMsg(peer) => Peers.addPeer(peer)
+  protected object Peers {
+    private val peers = new mutable.HashSet[Ref]()
+    private val informed = new mutable.HashSet[Ref]() // Peers that we've told about ourselves
 
-    case InvMsg(peerHashes) => {
-      val unknown: Set[Hash] = peerHashes -- knownHashes
-      for (hash <- unknown) {
-        sender() ! GetDataMsg(hash)
+    def number: Int = peers.size
+    def names: List[String] = peers.map(p => p.toString).toList
+
+    def addPeer(peer: Ref): ToSend = {
+      peers += peer
+
+      if (!informed.contains(peer)) {
+        informed += peer
+        emitOne(peer, ConnectMsg(self))
+      } else {
+        emitZero
       }
     }
 
-    case GetDataMsg(hash) => {
+    def gossip(message: Message, peers: Set[Ref] = peers.toSet): ToSend = {
+      emitMany(peers.toSeq, _ => message)
+    }
+  }
+
+  def step: Step = {
+    case BlockMsg(block) => extend(block.asInstanceOf[Block[P]]); Peers.gossip(InvMsg(self, knownHashes))
+    case TransactionMsg(tx) => txPool.put(tx.hash, tx); Peers.gossip(InvMsg(self, knownHashes))
+    case ConnectMsg(peer) => Peers.addPeer(peer)
+
+    case InvMsg(sender, peerHashes) => {
+      val unknown: Set[Hash] = peerHashes -- knownHashes
+      val messages = unknown.map(hash => GetDataMsg(self, hash)).toSeq
+      emitMany(sender, messages)
+    }
+
+    case GetDataMsg(requester, hash) => {
       txPool.get(hash) match {
-        case Some(tx) => sender() ! TransactionMsg(tx)
-        case None =>
+        case Some(tx) => emitOne(requester, TransactionMsg(tx))
+        case None => emitZero
       }
 
       blockTree.get(hash) match {
-        case Some(block) => sender() ! BlockMsg(block)
-        case None =>
+        case Some(block) => emitOne(requester, BlockMsg(block))
+        case None => emitZero
       }
     }
-
-    // Node control commands – sent exclusively by supervisor, not other nodes
-    case Node.TransferCmd(from, to, amount) => transfer(from, to, amount)
-    case Node.MemPoolCmd => sender() ! txPool.toSet
-    case Node.BlockchainCmd => sender() ! chain.top.hash
-    case Node.ListPeersCmd => log.info(Peers.number + " known peers: " + Peers.names)
   }
 
-  def extend(block: Block[P]): Unit = {
+  protected def extend(block: Block[P]): Unit = {
     if (!blockTree.has(block) && blockTree.extensionPossibleWith(block)) {
       blockTree.extend(block)
 
@@ -90,26 +106,31 @@ class Node[P](val nodeID: Int, val genesisBlock: GenesisBlock[P]) extends Actor 
     }
   }
 
-  def transfer(from: Address, to: Address, amount: Int): Unit = {
+  def transfer(from: Address, to: Address, amount: Int): ToSend = {
     val canSend = from == Address(nodeID) && chain.state.balance(from) >= amount
     if (canSend) {
-      log.info(s"Sending $amount from $from to $to.")
       val tx = new Transaction(from, to, amount)
       val msg = TransactionMsg(tx)
 
       txPool.put(tx.hash, tx)
-//      Peers.gossip(msg)
-      Peers.gossip(InvMsg(knownHashes))
+      Peers.gossip(InvMsg(self, knownHashes))
+    } else {
+      emitZero
     }
-    sender() ! canSend
   }
 }
 
-object Node {
-  // Sent locally to control the actor
-  abstract class ControlMessage extends Message
-  case class TransferCmd(from: Address, to: Address, amount: Int) extends ControlMessage
-  case class MemPoolCmd() extends ControlMessage
-  case class BlockchainCmd() extends ControlMessage
-  case class ListPeersCmd() extends ControlMessage
+class AkkaNode[P](val nodeID: Int, val genesisBlock: GenesisBlock[P]) extends NodeRoleImpl[ActorRef, P] with NodeCommandMessages with Actor {
+  val log = Logging(context.system, this)
+
+  override def receive: Receive = {
+    case msg if step.isDefinedAt(msg) => log.info("Received regular message " + msg); step(msg).foreach { case (a, m) => a ! m }
+
+    // Node control commands – sent exclusively by supervisor, not other nodes
+    case TransferCmd(from, to, amount) =>  log.info("Received transfer command"); sender() ! transfer(from, to, amount)
+    case MemPoolCmd => sender() ! txPool.toSet
+    case BlockchainCmd => sender() ! chain.top.hash
+    case ListPeersCmd => log.info(Peers.number + " known peers: " + Peers.names)
+
+  }
 }
