@@ -50,7 +50,13 @@ trait MinterRoleImpl[Ref] extends NodeRoleImpl[Ref, ProofOfStake] with MinterRol
 
 class AkkaMinter(nodeID: Int) extends AkkaNode[ProofOfStake](nodeID, PoSGenesisBlock) with MinterRoleImpl[ActorRef] {
   override def receive: Receive = super.receive orElse {
-    case MintCmd(to) => mint(to)
-    case x => log.info("Minter received unknown msg: " + x)
+    case MintCmd(to) => {
+      val sentMsgs: ToSend = mint(to)
+      sentMsgs.foreach {  case (a, m) => a ! m  }
+      if (sentMsgs.nonEmpty) {
+        log.info(s"Minted new block!")
+      }
+    }
+    case m => log.info("Received unknown message " + m)
   }
 }

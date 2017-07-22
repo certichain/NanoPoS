@@ -11,10 +11,10 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 import scala.util.Random
 
-object Demo extends App with NodeCommandMessages {
+object Demo extends App {
   val system = ActorSystem("pos")
-  val N: Int = 5
-  val S: Int = 5
+  val N: Int = 100
+  val S: Int = N
   val numAssignedPeers = 3
 
   // Create nodes
@@ -43,13 +43,13 @@ object Demo extends App with NodeCommandMessages {
   import system.dispatcher
   def runnable(f: => Unit): Runnable = new Runnable() { def run() = f }
 
-//  // All minters try to mint from time to time
-//  system.scheduler.schedule(0 seconds, 1 seconds, runnable {
-//    val mintersWithIds = mintersBuffer.toList
-//    for (minter <- mintersWithIds) {
-//      minter._2 ! MintCmd(Address(minter._1))
-//    }
-//  })
+  // All minters try to mint from time to time
+  system.scheduler.schedule(0 seconds, 1 seconds, runnable {
+    val mintersWithIds = mintersBuffer.toList
+    for (minter <- mintersWithIds) {
+      minter._2 ! MintCmd(Address(minter._1))
+    }
+  })
 
   val rand = new Random()
   def randomNodeID(): Int = rand.nextInt(N)

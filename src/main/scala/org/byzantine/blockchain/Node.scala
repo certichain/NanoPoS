@@ -7,20 +7,18 @@ import scala.collection.mutable
 import scala.language.postfixOps
 
 abstract class Message
-abstract class ControlMessage extends Message
-
 case class BlockMsg[P](block: Block[P]) extends Message
 case class TransactionMsg(tx: Transaction) extends Message
 case class InvMsg[Ref](sender: Ref, known: Set[Hash]) extends Message
 case class GetDataMsg[Ref](requester: Ref, hash: Hash) extends Message
 case class ConnectMsg[Ref](peer: Ref) extends Message
 
-trait NodeCommandMessages {
-  case class TransferCmd(from: Address, to: Address, amount: Int) extends ControlMessage
-  case class MemPoolCmd() extends ControlMessage
-  case class BlockchainCmd() extends ControlMessage
-  case class ListPeersCmd() extends ControlMessage
-}
+abstract class ControlMessage extends Message
+case class TransferCmd(from: Address, to: Address, amount: Int) extends ControlMessage
+case class MemPoolCmd() extends ControlMessage
+case class BlockchainCmd() extends ControlMessage
+case class ListPeersCmd() extends ControlMessage
+
 
 trait NodeRole[Ref, P] {
   val nodeID: Int
@@ -74,23 +72,23 @@ trait NodeRoleImpl[Ref, P] extends NodeRole[Ref, P] {
   }
 
   def step: Step = {
-    case BlockMsg(block) => extend(block.asInstanceOf[Block[P]]); Peers.gossip(InvMsg(self, knownHashes))
+    case bm : BlockMsg[P] => extend(bm.block); Peers.gossip(InvMsg(self, knownHashes))
     case TransactionMsg(tx) => txPool.put(tx.hash, tx); Peers.gossip(InvMsg(self, knownHashes))
     case cm : ConnectMsg[Ref] => Peers.addPeer(cm.peer)
 
-    case InvMsg(sender, peerHashes) =>
-      val unknown: Set[Hash] = peerHashes -- knownHashes
+    case im: InvMsg[Ref] =>
+      val unknown: Set[Hash] = im.known -- knownHashes
       val messages = unknown.map(hash => GetDataMsg(self, hash)).toSeq
-      emitMany(sender.asInstanceOf[Ref], messages)
+      emitMany(im.sender, messages)
 
-    case GetDataMsg(requester, hash) =>
-      txPool.get(hash) match {
-        case Some(tx) => emitOne(requester.asInstanceOf[Ref], TransactionMsg(tx))
+    case gm: GetDataMsg[Ref] =>
+      txPool.get(gm.hash) match {
+        case Some(tx) => emitOne(gm.requester, TransactionMsg(tx))
         case None => emitZero
       }
 
-      blockTree.get(hash) match {
-        case Some(block) => emitOne(requester.asInstanceOf[Ref], BlockMsg(block))
+      blockTree.get(gm.hash) match {
+        case Some(block) => emitOne(gm.requester, BlockMsg(block))
         case None => emitZero
       }
   }
@@ -120,21 +118,24 @@ trait NodeRoleImpl[Ref, P] extends NodeRole[Ref, P] {
   }
 }
 
-class AkkaNode[P](val nodeID: Int, val genesisBlock: GenesisBlock[P]) extends NodeRoleImpl[ActorRef, P] with NodeCommandMessages with Actor {
+class AkkaNode[P](val nodeID: Int, val genesisBlock: GenesisBlock[P]) extends NodeRoleImpl[ActorRef, P] with Actor {
   val log = Logging(context.system, this)
 
   override def receive: Receive = {
+    case msg if step.isDefinedAt(msg) => step(msg).foreach { case (a, m) => a ! m }
+
     // Node control commands – sent exclusively by supervisor, not other nodes
-    case TransferCmd(from, to, amount) => log.info("Received transfer command"); sender() ! transfer(from, to, amount)
+    case TransferCmd(from, to, amount) => {
+      val sentMsgs: ToSend = transfer(from, to, amount)
+      sentMsgs.foreach {  case (a, m) => a ! m  }
+
+      if (sentMsgs.nonEmpty) {
+        log.info(s"Sent $to from addr $from to addr $to!")
+      }
+      sender() ! sentMsgs.nonEmpty
+    }
     case MemPoolCmd => sender() ! txPool.toSet
     case BlockchainCmd => sender() ! chain.top.hash
     case ListPeersCmd => log.info(Peers.number + " known peers: " + Peers.names)
-
-    case msg /* if step.isDefinedAt(msg)*/ =>
-      val text = "Received regular message " + msg
-      println(text)
-      log.info(text)
-      step(msg).foreach { case (a, m) => a ! m }
-
   }
 }
