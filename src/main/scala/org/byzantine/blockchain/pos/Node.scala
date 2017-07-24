@@ -237,7 +237,7 @@ class SimNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) ext
 
     // Occasionally transfer money to a peer
     _ => {
-      val transferProbability = 0.05
+      val transferProbability = 0.001
       val amount = 5
 
       if (chain.state.balance(Address(nodeID)) > amount && (Random.nextDouble() < transferProbability)) {

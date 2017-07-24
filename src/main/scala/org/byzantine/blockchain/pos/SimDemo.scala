@@ -11,8 +11,10 @@ object SimDemo extends App {
 
   for(r <- 0 until 10000) {
     ps.round()
+    println(r)
   }
 
+  println("Writing log...")
   val log = ps.log.toString
 
   val file = new File("log-"+ Instant.now.getEpochSecond + ".txt" )

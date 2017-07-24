@@ -16,11 +16,11 @@ object Const {
 
   val GenesisPrevHash: Hash = new Hash("Genesis")
   val GenesisCoinbase: Coinbase = new Coinbase(Address(0))
-  val GenesisTimestamp: Long = Instant.now.getEpochSecond
+  val GenesisTimestamp: Long = 0 // Instant.now.getEpochSecond (for AkkaDemo)
   val GenesisProofOfStake = ProofOfStake(GenesisTimestamp, GenesisPrevHash, CoinbaseSourceAddress)
 
   val MaxAcceptedTimestampDiff: Long = 3600
-  val HashTarget: String = "07" + GenesisPrevHash.toString.substring(2)
+  val HashTarget: String = "007" + GenesisPrevHash.toString.substring(3)
 }
 
 // TODO: comment on this
