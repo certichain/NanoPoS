@@ -110,12 +110,10 @@ trait NodeImpl[Ref] extends NodeRole[Ref] {
     case gm: GetDataMsg[Ref] =>
       txPool.get(gm.hash) match {
         case Some(tx) => emitOne(gm.requester, TransactionMsg(tx))
-        case None => emitZero
-      }
-
-      blockTree.get(gm.hash) match {
-        case Some(block) => emitOne(gm.requester, BlockMsg(block))
-        case None => emitZero
+        case None => blockTree.get(gm.hash) match {
+          case Some(block) => emitOne(gm.requester, BlockMsg(block))
+          case None => emitZero
+        }
       }
   }
 
