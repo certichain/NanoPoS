@@ -2,11 +2,13 @@ package org.byzantine.blockchain
 
 import akka.actor.{Actor, ActorRef}
 import akka.event.Logging
-import org.byzantine.blockchain.pos. {ProofOfStake, POSHelper}
+import org.byzantine.blockchain.pos.{POSHelper, PoSGenesisBlock, ProofOfStake}
 
 import scala.collection.mutable
 import scala.language.postfixOps
 import java.time.Instant
+
+import scala.util.Random
 
 
 abstract class Message
@@ -16,6 +18,8 @@ case class InvMsg[Ref](sender: Ref, known: Set[Hash]) extends Message
 case class GetDataMsg[Ref](requester: Ref, hash: Hash) extends Message
 case class AddrMsg[Ref](of: Ref, peers: Set[Ref]) extends Message
 case class ConnectMsg[Ref](peer: Ref) extends Message
+
+case class InternalTransition[Ref](info: String) extends Message
 
 abstract class ControlMessage extends Message
 // These should be modelled as internal transitions
@@ -27,16 +31,10 @@ case class MemPoolCmd() extends ControlMessage
 case class BlockchainCmd() extends ControlMessage
 case class ListPeersCmd() extends ControlMessage
 
-trait NodeRole[Ref] {
-  val nodeID: Int
-  val genesisBlock: GenesisBlock[ProofOfStake]
-
-  type ToSend = Seq[(Ref, Message)]
+trait Communication[Ref] {
+  type Transmission = (Ref, Message)  // Ref = destination
+  type ToSend = Seq[Transmission]
   type Step = PartialFunction[Any, ToSend]
-
-  protected val self: Ref
-
-  def step: Step
 
   protected def emitOne(a: Ref, msg: Message): ToSend = Seq((a, msg))
 
@@ -47,7 +45,15 @@ trait NodeRole[Ref] {
   protected def emitZero: ToSend = Seq.empty
 }
 
-trait NodeRoleImpl[Ref] extends NodeRole[Ref] {
+trait NodeRole[Ref] extends Communication[Ref] {
+  protected val self: Ref
+  def step: Step
+}
+
+trait NodeImpl[Ref] extends NodeRole[Ref] {
+  val nodeID: Int
+  val genesisBlock: GenesisBlock[ProofOfStake]
+
   protected val blockTree = new BlockTree(genesisBlock)
   protected val txPool = new mutable.HashMap[Hash, Transaction]()
 
@@ -174,7 +180,7 @@ trait NodeRoleImpl[Ref] extends NodeRole[Ref] {
   }
 }
 
-class AkkaNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) extends NodeRoleImpl[ActorRef] with Actor {
+class AkkaNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) extends NodeImpl[ActorRef] with Actor {
   val log = Logging(context.system, this)
 
   override def receive: Receive = {
@@ -205,4 +211,39 @@ class AkkaNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) ex
 
     case m => log.info("Received unknown message " + m)
   }
+}
+
+class SimNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) extends SimProcess(nodeID) with NodeImpl[SimRef] {
+  def init(otherProcesses: Set[SimRef]): ToSend = {
+    otherProcesses.flatMap(peer => Peers.addPeer(peer)).toSeq
+  }
+
+  override val transitions: Seq[InternalTransition] = Seq(
+    // Mint
+    _ => {
+      if (new POSHelper(chain).stake(Address(nodeID)) != 0) {
+        val outbound = mint(Address(nodeID))
+        val minted = if (outbound.nonEmpty) emitOne(self, InternalTransition(s"$nodeID minted a block!")) else emitZero
+        minted ++ outbound
+      }
+      else
+        emitZero
+    },
+
+    // Occasionally transfer money to a peer
+    _ => {
+      val transferProbability = 0.05
+      val amount = 5
+
+      if (chain.state.balance(Address(nodeID)) > amount && (Random.nextDouble() < transferProbability)) {
+        val peers = Peers.knownPeers
+        val randomPeer = peers.toList(Random.nextInt(peers.size))
+
+        emitOne(self, InternalTransition(s"Send $amount from $nodeID to " + randomPeer.id)) ++
+        transfer(Address(nodeID), Address(randomPeer.id), amount)
+      } else
+        emitZero
+    }
+  )
+
 }

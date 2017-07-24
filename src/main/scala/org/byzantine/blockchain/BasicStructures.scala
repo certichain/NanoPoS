@@ -20,7 +20,7 @@ object Const {
   val GenesisProofOfStake = ProofOfStake(GenesisTimestamp, GenesisPrevHash, CoinbaseSourceAddress)
 
   val MaxAcceptedTimestampDiff: Long = 3600
-  val HashTarget: String = "007" + GenesisPrevHash.toString.substring(3)
+  val HashTarget: String = "07" + GenesisPrevHash.toString.substring(2)
 }
 
 // TODO: comment on this
