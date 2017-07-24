@@ -63,7 +63,7 @@ trait NodeImpl[Ref] extends NodeRole[Ref] {
 
   def knownHashes: Set[Hash] = blockTree.knownBlockHashes ++ txPool.keys.toSet
 
-  protected object Peers {
+  object Peers {
     val peers = new mutable.HashSet[Ref]()
     val informed = new mutable.HashSet[Ref]() // Peers that we've told about ourselves
 

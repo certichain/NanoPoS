@@ -4,6 +4,7 @@ import org.byzantine.blockchain.pos.{PoSGenesisBlock, ProofOfStake}
 import scala.collection.mutable
 import scala.reflect.ClassTag
 import scala.reflect.runtime.universe.TypeTag
+import scala.util.Random
 
 case class SimRef(val id: Int)
 
@@ -22,7 +23,7 @@ abstract class SimProcess(pid: Int) extends NodeRole[SimRef] {
 }
 
 // TODO: make this generic over SimProcess and NetworkEnvironment
-class ProtocolSimulator[Inv <: Invariant](val numProc: Int, val invariants: Set[Inv]) extends SimCommunication {
+class ProtocolSimulator[Inv <: Invariant](val numProc: Int, numKnown: Int, val invariants: Set[Inv]) extends SimCommunication {
   private val processMap = new mutable.HashMap[SimRef, SimNode]
   private def processRefs: Set[SimRef] = processMap.keySet.toSet
   private def processes: Set[SimNode] = processMap.values.toSet
@@ -38,9 +39,9 @@ class ProtocolSimulator[Inv <: Invariant](val numProc: Int, val invariants: Set[
       processMap += SimRef(pid) -> new SimNode(pid, PoSGenesisBlock)
     }
 
-    // Currently, all processes know about all other processes
     for (proc <- processes) {
-      proc.init(processRefs)
+      val knownProcs = Random.shuffle(processRefs.toList).take(numKnown).toSet
+      proc.init(knownProcs)
     }
 
     // First pass for all invariants

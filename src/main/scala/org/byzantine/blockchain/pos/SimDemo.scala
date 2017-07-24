@@ -6,11 +6,15 @@ import java.time.Instant
 import org.byzantine.blockchain._
 
 object SimDemo extends App {
-  val candidateInvariants = Set(new LocalChainLengthIncreases, new KnownBlocksEnlarges)
-  val ps = new ProtocolSimulator(100, candidateInvariants)
+  val N = 10
+  val knownPeers: Int = math.sqrt(N).toInt
+  val R = 1000
+  val candidateInvariants = Set(new LocalChainLengthIncreases, new KnownBlocksEnlarges, new AllPeersEventuallyKnown)
+
+  val ps = new ProtocolSimulator(N, knownPeers, candidateInvariants)
   ps.initAll()
 
-  for(r <- 0 until 5000) {
+  for(r <- 0 until R) {
     ps.round()
     println(r)
   }
@@ -29,4 +33,5 @@ object SimDemo extends App {
   bw.write(log)
   bw.close()
 
+  println(inv)
 }

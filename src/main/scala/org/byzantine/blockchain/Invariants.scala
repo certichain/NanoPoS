@@ -38,11 +38,12 @@ class LocalChainLengthIncreases extends Invariant {
       val p1 = chainLength(i+1)
 
       for(p <- p1.keys) {
-        hold = hold && (p0(p) <= p1(p))
+        val cond = (p0(p) <= p1(p))
+        hold = hold && cond
 
-        if (!hold) {
+        if (!cond) {
           sb ++= this.getClass.getName + " does not hold for rounds " + passes(i) + " and " + passes(i+1) + ": \n"
-          sb ++= p + "initially has " + p0(p) + " and afterwards has " + p1(p)
+          sb ++= p + "initially has " + p0(p) + " and afterwards has " + p1(p) + "\n"
         }
       }
     }
@@ -74,15 +75,56 @@ class KnownBlocksEnlarges extends Invariant {
       val p1 = knownBlockHashes(i+1)
 
       for(p <- p1.keys) {
-        hold = hold && (p1(p).intersect(p0(p)) == p0(p) && p1(p).size >= p0(p).size)
+        val cond = p1(p).intersect(p0(p)) == p0(p) && p1(p).size >= p0(p).size
+        hold = hold && cond
 
-        if (!hold) {
+        if (!cond) {
           sb ++= this.getClass.getName + " does not hold for rounds " + passes(i) + " and " + passes(i+1) + ": \n"
-          sb ++= p + "initially has " + p0(p) + " and afterwards has " + p1(p)
+          sb ++= p + "initially has " + p0(p) + " and afterwards has " + p1(p) + "\n"
         }
       }
     }
 
     Tuple2(hold, sb.toString)
   }
+}
+
+class AllPeersEventuallyKnown extends Invariant {
+  var hold = false
+  var knownPeers = new mutable.HashMap[SimRef, Set[SimRef]]
+  var pr: (Int, Long) = (0, 0)
+
+  def pass(processes: Set[SimNode], round: Long): Unit = {
+    val peers = new mutable.HashMap[SimRef, Set[SimRef]]()
+    for (proc <- processes) {
+      peers += proc.self -> proc.Peers.knownPeers
+    }
+    knownPeers = peers
+
+    if (holds()._1) {
+      hold = true
+    }
+
+    pr = (pr._1 + 1, round)
+  }
+
+  def holds(): Tuple2[Boolean, String] = {
+    if (hold) {
+      Tuple2(true, "")
+    } else {
+      var H = false
+      val sb = new mutable.StringBuilder()
+
+      for (p <- knownPeers.keySet.toSeq.sortWith((a, b) => a.id < b.id)) {
+        val cond = (knownPeers(p).size == knownPeers.size)
+        H = H || cond
+        if (!cond) {
+          sb ++= p + " knows " ++ knownPeers(p).toSeq.map(s => s.id).sorted.toString ++ " but should know " + knownPeers.keySet.toSeq.map(s => s.id).sorted.toString + "\n"
+        }
+      }
+
+      Tuple2(H, sb.toString)
+    }
+  }
+
 }
