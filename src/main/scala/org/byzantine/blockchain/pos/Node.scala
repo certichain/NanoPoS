@@ -2,16 +2,20 @@ package org.byzantine.blockchain
 
 import akka.actor.{Actor, ActorRef}
 import akka.event.Logging
+import org.byzantine.blockchain.pos. {ProofOfStake, POSHelper}
 
 import scala.collection.mutable
 import scala.language.postfixOps
+import java.time.Instant
+
 
 abstract class Message
-case class BlockMsg[P](block: Block[P]) extends Message
+case class BlockMsg(block: Block[ProofOfStake]) extends Message
 case class TransactionMsg(tx: Transaction) extends Message
 case class InvMsg[Ref](sender: Ref, known: Set[Hash]) extends Message
 case class GetDataMsg[Ref](requester: Ref, hash: Hash) extends Message
 case class ConnectMsg[Ref](peer: Ref) extends Message
+case class MintCmd(to: Address) extends ControlMessage
 
 abstract class ControlMessage extends Message
 case class TransferCmd(from: Address, to: Address, amount: Int) extends ControlMessage
@@ -19,10 +23,9 @@ case class MemPoolCmd() extends ControlMessage
 case class BlockchainCmd() extends ControlMessage
 case class ListPeersCmd() extends ControlMessage
 
-
-trait NodeRole[Ref, P] {
+trait NodeRole[Ref] {
   val nodeID: Int
-  val genesisBlock: GenesisBlock[P]
+  val genesisBlock: GenesisBlock[ProofOfStake]
 
   type ToSend = Seq[(Ref, Message)]
   type Step = PartialFunction[Any, ToSend]
@@ -40,11 +43,11 @@ trait NodeRole[Ref, P] {
   protected def emitZero: ToSend = Seq.empty
 }
 
-trait NodeRoleImpl[Ref, P] extends NodeRole[Ref, P] {
+trait NodeRoleImpl[Ref] extends NodeRole[Ref] {
   protected val blockTree = new BlockTree(genesisBlock)
   protected val txPool = new mutable.HashMap[Hash, Transaction]()
 
-  def chain: Blockchain[P] = blockTree.chain
+  def chain: Blockchain[ProofOfStake] = blockTree.chain
 
   def knownHashes: Set[Hash] = blockTree.knownBlockHashes ++ txPool.keys.toSet
 
@@ -72,7 +75,7 @@ trait NodeRoleImpl[Ref, P] extends NodeRole[Ref, P] {
   }
 
   def step: Step = {
-    case bm : BlockMsg[P] => extend(bm.block); Peers.gossip(InvMsg(self, knownHashes))
+    case bm : BlockMsg => extend(bm.block); Peers.gossip(InvMsg(self, knownHashes))
     case TransactionMsg(tx) => txPool.put(tx.hash, tx); Peers.gossip(InvMsg(self, knownHashes))
     case cm : ConnectMsg[Ref] => Peers.addPeer(cm.peer)
 
@@ -93,7 +96,7 @@ trait NodeRoleImpl[Ref, P] extends NodeRole[Ref, P] {
       }
   }
 
-  protected def extend(block: Block[P]): Unit = {
+  protected def extend(block: Block[ProofOfStake]): Unit = {
     if (!blockTree.has(block) && blockTree.extensionPossibleWith(block)) {
       blockTree.extend(block)
 
@@ -116,9 +119,47 @@ trait NodeRoleImpl[Ref, P] extends NodeRole[Ref, P] {
       emitZero
     }
   }
+
+  def mint(to: Address): ToSend = {
+    // Transactions that are acceptable on top of blockTree's current chain
+    def acceptableTransactions(txList: List[Transaction], timestamp: Long, validProof: ProofOfStake): List[Transaction] = {
+      val acceptedTransactions = new mutable.ListBuffer[Transaction]()
+
+      for (tx <- txList) {
+        val candidateBlock = new Block(blockTree.top.hash, acceptedTransactions.toList ++ List(tx), timestamp, validProof)
+        if (blockTree.extensionPossibleWith(candidateBlock)) {
+          acceptedTransactions += tx
+        }
+      }
+
+      acceptedTransactions.toList
+    }
+
+    val currentTimestamp = Instant.now.getEpochSecond
+    val posHelper = POSHelper(chain)
+
+    val pos = ProofOfStake(currentTimestamp, posHelper.stakeModifier, Address(nodeID))
+    val okTransactions = acceptableTransactions(txPool.values.toList, currentTimestamp, pos)
+
+    if (okTransactions.nonEmpty && posHelper.stake(Address(nodeID)) != 0 && posHelper.validate(pos)) {
+      val mintedBlock = new Block(blockTree.top.hash, new Coinbase(to) :: okTransactions, currentTimestamp, pos)
+
+      if (blockTree.extensionPossibleWith(mintedBlock)) {
+        extend(mintedBlock)
+        for (tx <- mintedBlock.tx) {
+          txPool.remove(tx.hash)
+        }
+        Peers.gossip(BlockMsg(mintedBlock))
+      } else {
+        emitZero
+      }
+    } else {
+      emitZero
+    }
+  }
 }
 
-class AkkaNode[P](val nodeID: Int, val genesisBlock: GenesisBlock[P]) extends NodeRoleImpl[ActorRef, P] with Actor {
+class AkkaNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) extends NodeRoleImpl[ActorRef] with Actor {
   val log = Logging(context.system, this)
 
   override def receive: Receive = {
@@ -134,8 +175,19 @@ class AkkaNode[P](val nodeID: Int, val genesisBlock: GenesisBlock[P]) extends No
       }
       sender() ! sentMsgs.nonEmpty
     }
+
+    case MintCmd(to) => {
+      val sentMsgs: ToSend = mint(to)
+      sentMsgs.foreach {  case (a, m) => a ! m  }
+      if (sentMsgs.nonEmpty) {
+        log.info(s"Minted new block!")
+      }
+    }
+
     case MemPoolCmd => sender() ! txPool.toSet
     case BlockchainCmd => sender() ! chain.top.hash
     case ListPeersCmd => log.info(Peers.number + " known peers: " + Peers.names)
+
+    case m => log.info("Received unknown message " + m)
   }
 }

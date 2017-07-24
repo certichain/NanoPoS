@@ -14,23 +14,17 @@ import scala.util.Random
 object Demo extends App {
   val system = ActorSystem("pos")
   val N: Int = 100
-  val S: Int = N
   val numAssignedPeers = 3
 
   // Create nodes
   val nodesBuffer = new ListBuffer[Tuple2[Int, ActorRef]]()
-  val mintersBuffer = new ListBuffer[Tuple2[Int, ActorRef]]()
 
-  for (i <- 0 until S) {
-    mintersBuffer.append((i, system.actorOf(Props(classOf[AkkaMinter], i), i.toString)))
-  }
-
-  for (i <- S until N) {
-    nodesBuffer.append((i, system.actorOf(Props(classOf[AkkaNode[ProofOfStake]], i, PoSGenesisBlock), i.toString)))
+  for (i <- 0 until N) {
+    nodesBuffer.append((i, system.actorOf(Props(classOf[AkkaNode], i, PoSGenesisBlock), i.toString)))
   }
 
 
-  def nodes = mintersBuffer.map(el => el._2).toList ++ nodesBuffer.map(el => el._2).toList
+  def nodes = nodesBuffer.map(el => el._2).toList
   // Inform them about each other
   for (initNode <- nodes) {
     val assignedPeers = Random.shuffle(nodes).take(numAssignedPeers)
@@ -43,9 +37,9 @@ object Demo extends App {
   import system.dispatcher
   def runnable(f: => Unit): Runnable = new Runnable() { def run() = f }
 
-  // All minters try to mint from time to time
+  // All nodes try to mint from time to time
   system.scheduler.schedule(0 seconds, 1 seconds, runnable {
-    val mintersWithIds = mintersBuffer.toList
+    val mintersWithIds = nodesBuffer.toList
     for (minter <- mintersWithIds) {
       minter._2 ! MintCmd(Address(minter._1))
     }
@@ -59,7 +53,7 @@ object Demo extends App {
     val ln = scala.io.StdIn.readLine()
 
     if (ln.contains('S')) {
-      val shuffledNodesWithIds = scala.util.Random.shuffle(mintersBuffer.toList ++ nodesBuffer.toList)
+      val shuffledNodesWithIds = scala.util.Random.shuffle(nodesBuffer.toList)
       val receiverID = shuffledNodesWithIds.last._1
 
       var sent = false
@@ -100,11 +94,7 @@ object Demo extends App {
       val id = ln.tail.toInt
       nodes(id) ! PoisonPill
 
-      if (id < S) {
-        mintersBuffer -= Tuple2(id, nodes(id))
-      } else {
-        nodesBuffer -= Tuple2(id, nodes(id))
-      }
+      nodesBuffer -= Tuple2(id, nodes(id))
     }
 
     else if (ln.contains('P')) {
