@@ -11,7 +11,7 @@ import scala.concurrent.duration._
 import scala.language.postfixOps
 import scala.util.Random
 
-object Demo extends App {
+object AkkaDemo extends App {
   val system = ActorSystem("pos")
   val N: Int = 100
   val numAssignedPeers = 3

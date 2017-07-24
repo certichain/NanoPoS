@@ -48,6 +48,8 @@ trait Communication[Ref] {
 trait NodeRole[Ref] extends Communication[Ref] {
   protected val self: Ref
   def step: Step
+
+  def currentTime: Long
 }
 
 trait NodeImpl[Ref] extends NodeRole[Ref] {
@@ -156,7 +158,7 @@ trait NodeImpl[Ref] extends NodeRole[Ref] {
       acceptedTransactions.toList
     }
 
-    val currentTimestamp = Instant.now.getEpochSecond
+    val currentTimestamp = currentTime
     val posHelper = POSHelper(chain)
 
     val pos = ProofOfStake(currentTimestamp, posHelper.stakeModifier, Address(nodeID))
@@ -182,6 +184,8 @@ trait NodeImpl[Ref] extends NodeRole[Ref] {
 
 class AkkaNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) extends NodeImpl[ActorRef] with Actor {
   val log = Logging(context.system, this)
+
+  override def currentTime: Long = Instant.now.getEpochSecond
 
   override def receive: Receive = {
     case msg if step.isDefinedAt(msg) => step(msg).foreach { case (a, m) => a ! m }
@@ -214,6 +218,9 @@ class AkkaNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) ex
 }
 
 class SimNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) extends SimProcess(nodeID) with NodeImpl[SimRef] {
+  override var round: Long = 0
+  override def currentTime: Long = round
+
   def init(otherProcesses: Set[SimRef]): ToSend = {
     otherProcesses.flatMap(peer => Peers.addPeer(peer)).toSeq
   }

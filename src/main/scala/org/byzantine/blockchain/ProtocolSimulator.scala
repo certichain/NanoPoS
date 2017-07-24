@@ -8,11 +8,12 @@ import scala.reflect.runtime.universe.TypeTag
 case class SimRef(val id: Int)
 
 trait SimCommunication extends Communication[SimRef] {
-  type TaggedTransmission = (Int, SimRef, Transmission) // Int = round, SimRef = source, Transmission = (dst, msg)
+  type TaggedTransmission = (Long, SimRef, Transmission) // Long = round, SimRef = source, Transmission = (dst, msg)
 }
 
 abstract class SimProcess(pid: Int) extends NodeRole[SimRef] {
   val self = SimRef(pid)
+  var round: Long // Automatically updated by Simulator
 
   def init(otherProcesses: Set[SimRef]): ToSend
 
@@ -28,7 +29,7 @@ class ProtocolSimulator(val numProc: Int) extends SimCommunication {
 
   private val messagePool = new mutable.HashSet[TaggedTransmission]
   private val network = new SynchronousNetwork()
-  private var currentRound = 0
+  private var currentRound: Long = 0
 
   val log = new MessageLog()
 
@@ -46,13 +47,19 @@ class ProtocolSimulator(val numProc: Int) extends SimCommunication {
   def round(): Unit = {
     // Determine which messages will get delivered
     val deliveredMessages = network.filter(messagePool.toSet, currentRound)
-    messagePool.clear()
+    messagePool --= deliveredMessages
+
+    // Update internal round counter for each process
+    for (proc <- processes) {
+      proc.round = currentRound
+    }
 
     // Deliver messages, retrieving responses while you do it
     for (taggedMsg <- deliveredMessages) {
       val transmission = taggedMsg._3
       val msg = transmission._2
       val receiver = processMap(transmission._1)
+
 
       if (receiver.step.isDefinedAt(msg)) {
         val responses: ToSend = receiver.step(msg)
@@ -72,18 +79,18 @@ class ProtocolSimulator(val numProc: Int) extends SimCommunication {
       }
     }
 
-    log ++= messagePool.toSet
+    log ++= deliveredMessages.toSet
     currentRound += 1
   }
 
 }
 
 abstract class NetworkEnvironment extends SimCommunication {
-  def filter(messagePool: Set[TaggedTransmission], round: Int): Set[TaggedTransmission]
+  def filter(messagePool: Set[TaggedTransmission], round: Long): Set[TaggedTransmission]
 }
 
 class SynchronousNetwork extends NetworkEnvironment {
-  def filter(messagePool: Set[TaggedTransmission], round: Int) = messagePool
+  def filter(messagePool: Set[TaggedTransmission], round: Long) = messagePool
 }
 
 class MessageLog extends SimCommunication {
@@ -95,7 +102,7 @@ class MessageLog extends SimCommunication {
 
   override def toString: String = {
     val sb = new mutable.StringBuilder()
-    val rounds: Seq[Int] = log.map(tm => tm._1).toSet.toSeq.sorted
+    val rounds: Seq[Long] = log.map(tm => tm._1).toSet.toSeq.sorted
 
     for (r <- rounds) {
       sb ++= s"Round $r\n"
@@ -116,5 +123,4 @@ class MessageLog extends SimCommunication {
     sb ++= "\n"
     sb.toString()
   }
-
 }

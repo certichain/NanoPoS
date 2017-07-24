@@ -9,13 +9,11 @@ object SimDemo extends App {
   val ps = new ProtocolSimulator(5)
   ps.initAll()
 
-  for(r <- 0 until 100) {
+  for(r <- 0 until 10000) {
     ps.round()
-    Thread.sleep(1000)
   }
 
   val log = ps.log.toString
-  println(log)
 
   val file = new File("log-"+ Instant.now.getEpochSecond + ".txt" )
   val bw = new BufferedWriter(new FileWriter(file))
