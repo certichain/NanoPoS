@@ -5,13 +5,20 @@ import scala.collection.mutable
 // TODO parameterize over SimProcess
 /**
   * Interface:
-  *  – the client runs pass at the end of different, given rounds
-  *  – the Invariant object collects and stores needed information from the processes every time pass() is called
-  *  – when client calls holds(), Invariant looks at stored info and returns whether Invariant is true
+  * – the client runs pass at the end of different, given rounds
+  * – the Invariant object collects and stores needed information from the processes every time pass() is called
+  * – when client calls holds(), Invariant looks at stored info and returns whether Invariant is true
   */
 trait Invariant {
+
+  // TODO: Why can'y you make it in one pass, at the end of the execution,
+  // simultaneously collecting the data and checking the invariant?
+  // All this lazy initialization with pass/holds may introduce more bugs
+  // and makes it hard to debug the implementation and also, when it comes to it,
+  // formalize the invariant when moving to Coq.
   def pass(processes: Set[SimNode], round: Long): Unit
-  def holds(): Tuple2[Boolean, String]
+
+  def holds(): (Boolean, String)
 }
 
 
@@ -28,78 +35,71 @@ class LocalChainLengthIncreases extends Invariant {
     passes += round
   }
 
-  def holds(): Tuple2[Boolean, String] = {
+  def holds(): (Boolean, String) = {
     require(passes.length >= 2, "Must have at least two passes!")
     var hold = true
     val sb = new mutable.StringBuilder()
 
     for (i <- 0 until (chainLength.size - 1)) {
       val p0 = chainLength(i)
-      val p1 = chainLength(i+1)
+      val p1 = chainLength(i + 1)
 
-      for(p <- p1.keys) {
-        val cond = (p0(p) <= p1(p))
+      for (p <- p1.keys) {
+        val cond = p0(p) <= p1(p)
         hold = hold && cond
 
         if (!cond) {
-          sb ++= this.getClass.getName + " does not hold for rounds " + passes(i) + " and " + passes(i+1) + ": \n"
-          sb ++= p + "initially has " + p0(p) + " and afterwards has " + p1(p) + "\n"
+          sb ++= s"${this.getClass.getName} does not hold for rounds ${passes(i)} and ${passes(i + 1)}: \n"
+          sb ++= s"${p}initially has ${p0(p)} and afterwards has ${p1(p)}\n"
         }
       }
     }
 
-    Tuple2(hold, sb.toString)
+    (hold, sb.toString)
   }
 }
 
 class KnownBlocksEnlarges extends Invariant {
-  val knownBlockHashes = new mutable.ListBuffer[mutable.HashMap[SimRef, Set[Hash]]]
+  val knownBlockHashes = new mutable.ListBuffer[Map[SimRef, Set[Hash]]]
   val passes = new mutable.ListBuffer[Long] // passes(k) = round
 
   def pass(processes: Set[SimNode], round: Long): Unit = {
-    val hashes = new mutable.HashMap[SimRef, Set[Hash]]()
-    for (proc <- processes) {
-      hashes += proc.self -> proc.blockTree.knownBlockHashes
-    }
-    knownBlockHashes += hashes
+    // Functional programming FTW!
+    knownBlockHashes += processes.map(p => p.self -> p.blockTree.knownBlockHashes).toMap
     passes += round
   }
 
-  def holds(): Tuple2[Boolean, String] = {
+  def holds(): (Boolean, String) = {
     require(passes.length >= 2, "Must have at least two passes!")
     var hold = true
     val sb = new mutable.StringBuilder()
 
     for (i <- 0 until (knownBlockHashes.size - 1)) {
       val p0 = knownBlockHashes(i)
-      val p1 = knownBlockHashes(i+1)
+      val p1 = knownBlockHashes(i + 1)
 
-      for(p <- p1.keys) {
+      for (p <- p1.keys) {
         val cond = p1(p).intersect(p0(p)) == p0(p) && p1(p).size >= p0(p).size
         hold = hold && cond
 
         if (!cond) {
-          sb ++= this.getClass.getName + " does not hold for rounds " + passes(i) + " and " + passes(i+1) + ": \n"
-          sb ++= p + "initially has " + p0(p) + " and afterwards has " + p1(p) + "\n"
+          sb ++= s"${this.getClass.getName} does not hold for rounds ${passes(i)} and ${passes(i + 1)}: \n"
+          sb ++= s"${p}initially has ${p0(p)} and afterwards has ${p1(p)}\n"
         }
       }
     }
 
-    Tuple2(hold, sb.toString)
+    (hold, sb.toString)
   }
 }
 
 class AllPeersEventuallyKnown extends Invariant {
   var hold = false
-  var knownPeers = new mutable.HashMap[SimRef, Set[SimRef]]
+  var knownPeers = Map.empty[SimRef, Set[SimRef]]
   var pr: (Int, Long) = (0, 0)
 
   def pass(processes: Set[SimNode], round: Long): Unit = {
-    val peers = new mutable.HashMap[SimRef, Set[SimRef]]()
-    for (proc <- processes) {
-      peers += proc.self -> proc.Peers.knownPeers
-    }
-    knownPeers = peers
+    knownPeers = processes.map(proc => proc.self -> proc.Peers.knownPeers).toMap
 
     if (holds()._1) {
       hold = true
@@ -108,22 +108,24 @@ class AllPeersEventuallyKnown extends Invariant {
     pr = (pr._1 + 1, round)
   }
 
-  def holds(): Tuple2[Boolean, String] = {
+  def holds(): (Boolean, String) = {
     if (hold) {
-      Tuple2(true, "")
+      (true, "")
     } else {
       var H = false
       val sb = new mutable.StringBuilder()
 
-      for (p <- knownPeers.keySet.toSeq.sortWith((a, b) => a.id < b.id)) {
-        val cond = (knownPeers(p).size == knownPeers.size)
+      for (p <- knownPeers.keySet.toSeq.sortBy(_.id)) {
+        val cond = knownPeers(p).size == knownPeers.size
         H = H || cond
         if (!cond) {
-          sb ++= p + " knows " ++ knownPeers(p).toSeq.map(s => s.id).sorted.toString ++ " but should know " + knownPeers.keySet.toSeq.map(s => s.id).sorted.toString + "\n"
+          val knows = knownPeers(p).toSeq.map(_.id).sorted.mkString("[", ",", "]")
+          val expected = knownPeers.keySet.toSeq.map(_.id).sorted.mkString("[", ",", "]")
+          sb ++= s"$p knows $knows, but should know $expected\n"
         }
       }
 
-      Tuple2(H, sb.toString)
+      (H, sb.toString)
     }
   }
 

@@ -1,12 +1,11 @@
 package org.byzantine.blockchain
-import org.byzantine.blockchain.pos.{PoSGenesisBlock, ProofOfStake}
+
+import org.byzantine.blockchain.pos.PoSGenesisBlock
 
 import scala.collection.mutable
-import scala.reflect.ClassTag
-import scala.reflect.runtime.universe.TypeTag
 import scala.util.Random
 
-case class SimRef(val id: Int)
+case class SimRef(id: Int)
 
 trait SimCommunication extends Communication[SimRef] {
   type TaggedTransmission = (Long, SimRef, Transmission) // Long = round, SimRef = source, Transmission = (dst, msg)
@@ -61,53 +60,46 @@ class ProtocolSimulator[Inv <: Invariant](val numProc: Int, numKnown: Int, val i
     }
 
     // Deliver messages, retrieving responses while you do it
-    for (taggedMsg <- deliveredMessages) {
-      val transmission = taggedMsg._3
-      val msg = transmission._2
-      val receiver = processMap(transmission._1)
-
-
-      if (receiver.step.isDefinedAt(msg)) {
-        val responses: ToSend = receiver.step(msg)
-        for (resp <- responses) {
-          messagePool += Tuple3(currentRound, receiver.self, resp)
-        }
-      }
-    }
+    for {
+      taggedMsg <- deliveredMessages
+      transmission = taggedMsg._3
+      msg = transmission._2
+      receiver = processMap(transmission._1)
+      if receiver.step.isDefinedAt(msg)
+      resp <- receiver.step(msg)
+    } messagePool += ((currentRound, receiver.self, resp))
 
     // Run process internal transitions
-    for (proc <- processes) {
-      for (trans <- proc.transitions) {
-        val outbound: ToSend = trans()
-        for (out <- outbound) {
-          messagePool += Tuple3(currentRound, proc.self, out)
-        }
-      }
-    }
+    for {
+      proc <- processes
+      trans <- proc.transitions
+      outbound: ToSend = trans()
+      out <- outbound
+    } messagePool += ((currentRound, proc.self, out))
 
     // Pass through invariants
     for (inv <- invariants) {
       inv.pass(processes, currentRound)
     }
 
-    log ++= deliveredMessages.toSet
+    log ++= deliveredMessages
     currentRound += 1
   }
 
-  def checkInvariants(): Tuple2[Boolean, String] = {
+  def checkInvariants(): (Boolean, String) = {
     val sb = new mutable.StringBuilder()
     var hold = true
 
     for (inv <- invariants) {
       val check = inv.holds()
       hold = hold && check._1
-      sb ++= inv.getClass.getName + (if(check._1) " holds" else " DOESN'T hold") + "\n"
-      if(!check._1) {
+      sb ++= inv.getClass.getName + (if (check._1) " holds" else " DOESN'T hold") + "\n"
+      if (!check._1) {
         sb ++= check._2
       }
     }
 
-    Tuple2(hold, sb.toString)
+    (hold, sb.toString)
   }
 
 }
@@ -134,15 +126,15 @@ class MessageLog extends SimCommunication {
     for (r <- rounds) {
       sb ++= s"Round $r\n"
 
-      val msgs = log.filter(tm => tm._1 == r).map(tm => Tuple3(tm._2, tm._3._2, tm._3._1))
+      val msgs = log.filter(tm => tm._1 == r).map(tm => (tm._2, tm._3._2, tm._3._1))
       val sortedMsgs = msgs.sortWith {
         (A, B) => {
           A._1.id < B._1.id ||
-            ((A._1.id == B._1.id) && (A._3.id < B._3.id))
+              ((A._1.id == B._1.id) && (A._3.id < B._3.id))
         }
       }
 
-      for (i <- 0 until sortedMsgs.size) {
+      for (i <- sortedMsgs.indices) {
         sb ++= s"  Msg $i: " + sortedMsgs(i) + "\n"
       }
     }

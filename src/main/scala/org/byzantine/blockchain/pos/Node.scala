@@ -199,13 +199,12 @@ class AkkaNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) ex
       sender() ! sentMsgs.nonEmpty
     }
 
-    case MintCmd(to) => {
+    case MintCmd(to) =>
       val sentMsgs: ToSend = mint(to)
       sentMsgs.foreach {  case (a, m) => a ! m  }
       if (sentMsgs.nonEmpty) {
         log.info(s"Minted new block!")
       }
-    }
 
     case MemPoolCmd => sender() ! txPool.toSet
     case BlockchainCmd => sender() ! chain.top.hash
@@ -215,7 +214,8 @@ class AkkaNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) ex
   }
 }
 
-class SimNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) extends SimProcess(nodeID) with NodeImpl[SimRef] {
+class SimNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake])
+    extends SimProcess(nodeID) with NodeImpl[SimRef] {
   override var round: Long = 0
   override def currentTime: Long = round
 
@@ -226,7 +226,7 @@ class SimNode(val nodeID: Int, val genesisBlock: GenesisBlock[ProofOfStake]) ext
   override val transitions: Seq[InternalTransition] = Seq(
     // Mint
     _ => {
-      if (new POSHelper(chain).stake(Address(nodeID)) != 0) {
+      if (POSHelper(chain).stake(Address(nodeID)) != 0) {
         val outbound = mint(Address(nodeID))
         val minted = if (outbound.nonEmpty) emitOne(self, InternalTransition(s"$nodeID minted a block!")) else emitZero
         minted ++ outbound

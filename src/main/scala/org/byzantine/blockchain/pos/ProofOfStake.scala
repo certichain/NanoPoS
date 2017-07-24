@@ -20,12 +20,15 @@ object PoSGenesisBlock extends GenesisBlock(Const.GenesisProofOfStake)
 // TODO: Make this object purely functional!
 case class POSHelper(chain: Blockchain[ProofOfStake]) {
   private val blocks = chain.blocks
-  private var chainState = State(List(blocks.head))
+  private val chainState = State(List(blocks.head))
   private var currentBlockHeight = 0
+
   private def chainTop = blocks(currentBlockHeight)
 
   // When constructed, verify POS conditions for all blocks
   require(chainTop == PoSGenesisBlock, "First block must be the genesis block.")
+
+  // TODO: what is this for?
   while (processNextBlock()) {}
 
   def stake(stakeholder: Address): Int = chainState.balance(stakeholder)
