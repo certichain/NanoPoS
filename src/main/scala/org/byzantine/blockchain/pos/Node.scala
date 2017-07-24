@@ -14,11 +14,15 @@ case class BlockMsg(block: Block[ProofOfStake]) extends Message
 case class TransactionMsg(tx: Transaction) extends Message
 case class InvMsg[Ref](sender: Ref, known: Set[Hash]) extends Message
 case class GetDataMsg[Ref](requester: Ref, hash: Hash) extends Message
+case class AddrMsg[Ref](of: Ref, peers: Set[Ref]) extends Message
 case class ConnectMsg[Ref](peer: Ref) extends Message
-case class MintCmd(to: Address) extends ControlMessage
 
 abstract class ControlMessage extends Message
+// These should be modelled as internal transitions
 case class TransferCmd(from: Address, to: Address, amount: Int) extends ControlMessage
+case class MintCmd(to: Address) extends ControlMessage
+
+// These don't need to be modelled
 case class MemPoolCmd() extends ControlMessage
 case class BlockchainCmd() extends ControlMessage
 case class ListPeersCmd() extends ControlMessage
@@ -34,7 +38,7 @@ trait NodeRole[Ref] {
 
   def step: Step
 
-  protected def emitOne(a: Ref, msg: Message) = Seq((a, msg))
+  protected def emitOne(a: Ref, msg: Message): ToSend = Seq((a, msg))
 
   protected def emitMany(a: Ref, msgs: Seq[Message]): ToSend = msgs.map(msg => (a, msg))
 
@@ -58,6 +62,8 @@ trait NodeRoleImpl[Ref] extends NodeRole[Ref] {
     def number: Int = peers.size
     def names: List[String] = peers.map(p => p.toString).toList
 
+    def knownPeers: Set[Ref] = peers.toSet
+
     def addPeer(peer: Ref): ToSend = {
       peers += peer
 
@@ -69,14 +75,23 @@ trait NodeRoleImpl[Ref] extends NodeRole[Ref] {
       }
     }
 
-    def gossip(message: Message, peers: Set[Ref] = peers.toSet): ToSend = {
+    def gossip(message: Message, peers: Set[Ref] = knownPeers - self): ToSend = {
       emitMany(peers.toSeq, _ => message)
     }
   }
 
   def step: Step = {
-    case bm : BlockMsg => extend(bm.block); Peers.gossip(InvMsg(self, knownHashes))
+    case BlockMsg(block) => {
+      extend(block)
+      // Advertise what you know & who you know
+      Peers.gossip(InvMsg(self, knownHashes)) ++ Peers.gossip(AddrMsg(self, Peers.knownPeers))
+    }
     case TransactionMsg(tx) => txPool.put(tx.hash, tx); Peers.gossip(InvMsg(self, knownHashes))
+
+    case am: AddrMsg[Ref] => {
+      val unknown: Seq[Ref] = (am.peers -- Peers.knownPeers).toSeq
+      unknown.flatMap(peer => Peers.addPeer(peer))
+    }
     case cm : ConnectMsg[Ref] => Peers.addPeer(cm.peer)
 
     case im: InvMsg[Ref] =>
