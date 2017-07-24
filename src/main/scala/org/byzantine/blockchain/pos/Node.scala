@@ -56,16 +56,16 @@ trait NodeImpl[Ref] extends NodeRole[Ref] {
   val nodeID: Int
   val genesisBlock: GenesisBlock[ProofOfStake]
 
-  protected val blockTree = new BlockTree(genesisBlock)
-  protected val txPool = new mutable.HashMap[Hash, Transaction]()
+  val blockTree = new BlockTree(genesisBlock)
+  val txPool = new mutable.HashMap[Hash, Transaction]()
 
   def chain: Blockchain[ProofOfStake] = blockTree.chain
 
   def knownHashes: Set[Hash] = blockTree.knownBlockHashes ++ txPool.keys.toSet
 
   protected object Peers {
-    private val peers = new mutable.HashSet[Ref]()
-    private val informed = new mutable.HashSet[Ref]() // Peers that we've told about ourselves
+    val peers = new mutable.HashSet[Ref]()
+    val informed = new mutable.HashSet[Ref]() // Peers that we've told about ourselves
 
     def number: Int = peers.size
     def names: List[String] = peers.map(p => p.toString).toList

@@ -22,7 +22,7 @@ abstract class SimProcess(pid: Int) extends NodeRole[SimRef] {
 }
 
 // TODO: make this generic over SimProcess and NetworkEnvironment
-class ProtocolSimulator(val numProc: Int) extends SimCommunication {
+class ProtocolSimulator[Inv <: Invariant](val numProc: Int, val invariants: Set[Inv]) extends SimCommunication {
   private val processMap = new mutable.HashMap[SimRef, SimNode]
   private def processRefs: Set[SimRef] = processMap.keySet.toSet
   private def processes: Set[SimNode] = processMap.values.toSet
@@ -41,6 +41,11 @@ class ProtocolSimulator(val numProc: Int) extends SimCommunication {
     // Currently, all processes know about all other processes
     for (proc <- processes) {
       proc.init(processRefs)
+    }
+
+    // First pass for all invariants
+    for (inv <- invariants) {
+      inv.pass(processes, -1)
     }
   }
 
@@ -79,8 +84,29 @@ class ProtocolSimulator(val numProc: Int) extends SimCommunication {
       }
     }
 
+    // Pass through invariants
+    for (inv <- invariants) {
+      inv.pass(processes, currentRound)
+    }
+
     log ++= deliveredMessages.toSet
     currentRound += 1
+  }
+
+  def checkInvariants(): Tuple2[Boolean, String] = {
+    val sb = new mutable.StringBuilder()
+    var hold = true
+
+    for (inv <- invariants) {
+      val check = inv.holds()
+      hold = hold && check._1
+      sb ++= inv.getClass.getName + (if(check._1) " holds" else " DOESN'T hold") + "\n"
+      if(!check._1) {
+        sb ++= check._2
+      }
+    }
+
+    Tuple2(hold, sb.toString)
   }
 
 }

@@ -3,21 +3,28 @@ package org.byzantine.blockchain.pos
 import java.io.{BufferedWriter, File, FileWriter}
 import java.time.Instant
 
-import org.byzantine.blockchain.ProtocolSimulator
+import org.byzantine.blockchain._
 
 object SimDemo extends App {
-  val ps = new ProtocolSimulator(5)
+  val candidateInvariants = Set(new LocalChainLengthIncreases, new KnownBlocksEnlarges)
+  val ps = new ProtocolSimulator(100, candidateInvariants)
   ps.initAll()
 
-  for(r <- 0 until 10000) {
+  for(r <- 0 until 5000) {
     ps.round()
     println(r)
   }
 
-  println("Writing log...")
-  val log = ps.log.toString
+  val timestamp = Instant.now.getEpochSecond
 
-  val file = new File("log-"+ Instant.now.getEpochSecond + ".txt" )
+  println("Checking invariants...")
+  val inv = ps.checkInvariants()._2
+
+  println("Writing log...")
+  val log = PoSGenesisBlock.toString + "\n" + inv + "\n" + ps.log.toString
+
+  println("Writing to disk...")
+  val file = new File("log-"+ timestamp + ".txt" )
   val bw = new BufferedWriter(new FileWriter(file))
   bw.write(log)
   bw.close()
